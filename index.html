@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Miniflix</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background-color: #141414; color: #fff; padding: 16px; }
+    h1 { font-size: 1.5rem; color: #e50914; margin-bottom: 16px; text-align: center; }
+    
+    .tabs { display: flex; gap: 8px; margin-bottom: 20px; overflow-x: auto; padding-bottom: 4px; }
+    .tab { background: #2f2f2f; border: none; color: #fff; padding: 8px 16px; border-radius: 20px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .tab.active { background: #e50914; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 14px; }
+    .card { background: #1f1f1f; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; cursor: pointer; transition: transform 0.2s; border: 1px solid #333; }
+    .card:active { transform: scale(0.96); }
+    .poster { width: 100%; height: 180px; object-fit: cover; background-color: #2a2a2a; }
+    .info { padding: 8px; display: flex; flex-direction: column; flex-grow: 1; justify-content: space-between; }
+    .title { font-size: 0.85rem; font-weight: bold; margin-bottom: 4px; }
+    .tag { font-size: 0.7rem; color: #aaa; text-transform: uppercase; }
+    .btn-assistir { margin-top: 8px; background: #e50914; border: none; color: white; padding: 6px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; width: 100%; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>MINIFLIX</h1>
+
+  <div class="tabs">
+    <button class="tab active" onclick="filtrar('todos')">Todos</button>
+    <button class="tab" onclick="filtrar('filme')">Filmes</button>
+    <button class="tab" onclick="filtrar('serie')">Séries</button>
+    <button class="tab" onclick="filtrar('anime')">Animes</button>
+    <button class="tab" onclick="filtrar('cartoon')">Cartoons</button>
+  </div>
+
+  <div class="grid" id="catalogo"></div>
+
+  <script>
+    const tg = window.Telegram.WebApp;
+    tg.ready();
+    tg.expand();
+
+    // Dados de exemplo (podem ser alimentados via API posteriormente)
+    const itens = [
+      { id: 1, tipo: 'filme', titulo: 'Matrix (1999)', img: 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=300' },
+      { id: 2, tipo: 'serie', titulo: 'Ruptura S01E01', img: 'https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?w=300' },
+      { id: 3, tipo: 'anime', titulo: 'Attack on Titan S04E15', img: 'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=300' },
+      { id: 4, tipo: 'cartoon', titulo: 'X-Men 97 S01E01', img: 'https://images.unsplash.com/photo-1563089145-599997674d42?w=300' }
+    ];
+
+    function renderizar(lista) {
+      const container = document.getElementById('catalogo');
+      container.innerHTML = '';
+      lista.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <img src="${item.img}" class="poster" alt="${item.titulo}" />
+          <div class="info">
+            <div>
+              <div class="tag">${item.tipo}</div>
+              <div class="title">${item.titulo}</div>
+            </div>
+            <button class="btn-assistir" onclick="solicitarConteudo('${item.tipo}', ${item.id})">Assistir</button>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function filtrar(categoria) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      event.target.classList.add('active');
+      if (categoria === 'todos') {
+        renderizar(itens);
+      } else {
+        renderizar(itens.filter(i => i.tipo === categoria));
+      }
+    }
+
+    function solicitarConteudo(tipo, id) {
+      // Envia o payload de volta para a conversa do bot
+      tg.sendData(JSON.stringify({ acao: 'play', tipo: tipo, id: id }));
+      tg.close();
+    }
+
+    renderizar(itens);
+  </script>
+</body>
+</html>
