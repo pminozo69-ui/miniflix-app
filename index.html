@@ -527,38 +527,28 @@
     }
 
     function solicitarMidiaFilme() {
-      if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-      try {
-        tg.sendData(JSON.stringify({ acao: 'play', tipo: 'filme', id: itemSelecionado.id }));
-        tg.close();
-      } catch (e) {
-        if (tg?.openTelegramLink) {
-          tg.openTelegramLink(`https://t.me/${BOT_USERNAME}?start=play_${itemSelecionado.id}`);
-        } else {
-          window.open(`https://t.me/${BOT_USERNAME}?start=play_${itemSelecionado.id}`, '_blank');
-        }
-      }
-    }
+  if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+  
+  const link = `https://t.me/${BOT_USERNAME}?start=play_${itemSelecionado.id}`;
+  
+  if (tg?.openTelegramLink) {
+    tg.openTelegramLink(link);
+  } else {
+    window.location.href = link;
+  }
+}
 
-    function solicitarMidiaEpisodio(temporada, episodio) {
-      if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-      try {
-        tg.sendData(JSON.stringify({
-          acao: 'play',
-          tipo: itemSelecionado.tipo,
-          id: itemSelecionado.id,
-          temporada: parseInt(temporada),
-          episodio: parseInt(episodio)
-        }));
-        tg.close();
-      } catch (e) {
-        if (tg?.openTelegramLink) {
-          tg.openTelegramLink(`https://t.me/${BOT_USERNAME}?start=play_${itemSelecionado.id}_${temporada}_${episodio}`);
-        } else {
-          window.open(`https://t.me/${BOT_USERNAME}?start=play_${itemSelecionado.id}_${temporada}_${episodio}`, '_blank');
-        }
-      }
-    }
+function solicitarMidiaEpisodio(temporada, episodio) {
+  if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+  
+  const link = `https://t.me/${BOT_USERNAME}?start=play_${itemSelecionado.id}_${temporada}_${episodio}`;
+  
+  if (tg?.openTelegramLink) {
+    tg.openTelegramLink(link);
+  } else {
+    window.location.href = link;
+  }
+}
 
     // Inicialização
     carregarCatalogo();
