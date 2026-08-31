@@ -1,11 +1,15 @@
+import asyncio
 import json
 import logging
 import os
 import re
+import sys
+import threading
 import unicodedata
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs, urlparse
 import psycopg2
 import requests
-from aiohttp import web
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -15,7 +19,6 @@ from telegram import (
     WebAppInfo,
 )
 from telegram.ext import (
-    Application,
     ApplicationBuilder,
     CallbackQueryHandler,
     CommandHandler,
@@ -23,6 +26,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from telegram.request import HTTPXRequest
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -58,7 +62,7 @@ def buscar_metadados_tmdb(nome_titulo: str, categoria: str):
     }
 
     try:
-        resp = requests.get(url, params=params, timeout=5)
+        resp = requests.get(url, params=params, timeout=10)
         dados = resp.json()
         resultados = dados.get("results", [])
 
@@ -78,7 +82,7 @@ def buscar_metadados_tmdb(nome_titulo: str, categoria: str):
         logging.error(f"Erro ao consultar TMDB: {e}")
         return None, None, None
 
-# --- BANCO DE DADOS (SUPABASE) ---
+# --- BANCO DE DADOS (SUPABASE COM MIGRAÇÃO AUTOMÁTICA) ---
 def init_db():
     conn = get_db_connection()
     c = conn.cursor()
@@ -92,6 +96,12 @@ def init_db():
             sinopse TEXT,
             ano INTEGER
         );
+    """)
+    c.execute("""
+        ALTER TABLE titulos 
+        ADD COLUMN IF NOT EXISTS poster_url TEXT,
+        ADD COLUMN IF NOT EXISTS sinopse TEXT,
+        ADD COLUMN IF NOT EXISTS ano INTEGER;
     """)
     c.execute("""
         CREATE TABLE IF NOT EXISTS arquivos (
@@ -114,61 +124,151 @@ def init_db():
     c.close()
     conn.close()
 
-# --- SERVIDOR WEB & API PARA O MINI APP / RENDER ---
-async def api_catalogo(request):
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("""
-        SELECT t.id, t.categoria, t.nome, t.poster_url, t.sinopse, t.ano,
-               a.temporada, a.episodio
-        FROM titulos t
-        LEFT JOIN arquivos a ON t.id = a.titulo_id
-        ORDER BY t.nome ASC, a.temporada ASC, a.episodio ASC;
-    """)
-    linhas = c.fetchall()
-    c.close()
-    conn.close()
-
-    titulos_map = {}
-    for r in linhas:
-        t_id, cat, nome, poster, sinopse, ano, temp, ep = r
-        if t_id not in titulos_map:
-            titulos_map[t_id] = {
-                "id": t_id,
-                "tipo": cat,
-                "titulo": nome,
-                "ano": ano or "N/A",
-                "sinopse": sinopse or "Sem sinopse cadastrada.",
-                "img": poster or "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=300",
-                "temporadas": {}
-            }
+# --- SERVIDOR WEB NATIVO (API DO CATÁLOGO, DISPARO DE MÍDIA E PING DO RENDER) ---
+class ServidorWebHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        parsed = urlparse(self.path)
         
-        if cat != "filme" and temp is not None and ep is not None:
-            temp_str = str(temp)
-            if temp_str not in titulos_map[t_id]["temporadas"]:
-                titulos_map[t_id]["temporadas"][temp_str] = []
-            if ep not in titulos_map[t_id]["temporadas"][temp_str]:
-                titulos_map[t_id]["temporadas"][temp_str].append(ep)
+        # 1. Rota de disparo de mídia chamada pelo Mini App
+        if parsed.path == "/api/play":
+            try:
+                params = parse_qs(parsed.query)
+                user_id = int(params.get("user_id", [0])[0])
+                titulo_id = int(params.get("titulo_id", [0])[0])
+                tipo = params.get("tipo", ["filme"])[0]
+                temp = int(params.get("temporada", [0])[0])
+                ep = int(params.get("episodio", [0])[0])
 
-    lista_final = list(titulos_map.values())
-    return web.json_response(lista_final, headers={"Access-Control-Allow-Origin": "*"})
+                if user_id and titulo_id:
+                    conn = get_db_connection()
+                    c = conn.cursor()
+                    
+                    if tipo == "filme" or (temp == 0 and ep == 0):
+                        c.execute("SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s LIMIT 1;", (titulo_id,))
+                    else:
+                        c.execute(
+                            "SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s LIMIT 1;",
+                            (titulo_id, temp, ep)
+                        )
+                    
+                    arq = c.fetchone()
+                    if arq:
+                        arq_id, chat_origem, msg_origem = arq
+                        
+                        reply_markup = None
+                        if tipo != "filme":
+                            c.execute(
+                                "SELECT id, episodio FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s LIMIT 1;",
+                                (titulo_id, temp, ep + 1)
+                            )
+                            prox = c.fetchone()
+                            if prox:
+                                reply_markup = {
+                                    "inline_keyboard": [[{
+                                        "text": f"▶️ Próximo (Ep {prox[1]:02d})",
+                                        "callback_data": f"play:{prox[0]}"
+                                    }]]
+                                }
+                        
+                        c.close()
+                        conn.close()
 
-async def rota_health(request):
-    return web.Response(text="Miniflix Bot Online!", status=200)
+                        payload = {
+                            "chat_id": user_id,
+                            "from_chat_id": chat_origem,
+                            "message_id": msg_origem
+                        }
+                        if reply_markup:
+                            payload["reply_markup"] = reply_markup
 
-async def post_init(application: Application):
-    server = web.Application()
-    server.router.add_get("/", rota_health)
-    server.router.add_get("/health", rota_health)
-    server.router.add_get("/api/catalogo", api_catalogo)
-    
-    runner = web.AppRunner(server)
-    await runner.setup()
-    
+                        requests.post(f"https://api.telegram.org/bot{TOKEN}/copyMessage", json=payload, timeout=5)
+
+                        corpo = json.dumps({"ok": True}).encode("utf-8")
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json; charset=utf-8")
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.send_header("Content-Length", str(len(corpo)))
+                        self.end_headers()
+                        self.wfile.write(corpo)
+                        return
+                    
+                    c.close()
+                    conn.close()
+            except Exception as e:
+                logging.error(f"Erro na rota /api/play: {e}")
+
+            corpo = json.dumps({"ok": False}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(corpo)))
+            self.end_headers()
+            self.wfile.write(corpo)
+
+        # 2. Rota do Catálogo
+        elif parsed.path == "/api/catalogo":
+            try:
+                conn = get_db_connection()
+                c = conn.cursor()
+                c.execute("""
+                    SELECT t.id, t.categoria, t.nome, t.poster_url, t.sinopse, t.ano,
+                           a.temporada, a.episodio
+                    FROM titulos t
+                    LEFT JOIN arquivos a ON t.id = a.titulo_id
+                    ORDER BY t.nome ASC, a.temporada ASC, a.episodio ASC;
+                """)
+                linhas = c.fetchall()
+                c.close()
+                conn.close()
+
+                titulos_map = {}
+                for r in linhas:
+                    t_id, cat, nome, poster, sinopse, ano, temp, ep = r
+                    if t_id not in titulos_map:
+                        titulos_map[t_id] = {
+                            "id": t_id,
+                            "tipo": cat,
+                            "titulo": nome,
+                            "ano": ano or "N/A",
+                            "sinopse": sinopse or "Sem sinopse cadastrada.",
+                            "img": poster or "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=300",
+                            "temporadas": {}
+                        }
+                    
+                    if cat != "filme" and temp is not None and ep is not None:
+                        temp_str = str(temp)
+                        if temp_str not in titulos_map[t_id]["temporadas"]:
+                            titulos_map[t_id]["temporadas"][temp_str] = []
+                        if ep not in titulos_map[t_id]["temporadas"][temp_str]:
+                            titulos_map[t_id]["temporadas"][temp_str].append(ep)
+
+                corpo = json.dumps(list(titulos_map.values()), ensure_ascii=False).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-Length", str(len(corpo)))
+                self.end_headers()
+                self.wfile.write(corpo)
+            except Exception as e:
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(str(e).encode("utf-8"))
+        else:
+            msg = b"Miniflix Bot Online!"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(msg)))
+            self.end_headers()
+            self.wfile.write(msg)
+
+    def log_message(self, format, *args):
+        return
+
+def iniciar_servidor_web():
     porta = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, "0.0.0.0", porta)
-    await site.start()
-    logging.info(f"--> [API + RENDER] Servidor rodando na porta {porta}")
+    httpd = HTTPServer(("0.0.0.0", porta), ServidorWebHandler)
+    logging.info(f"--> [API + RENDER] Servidor HTTP nativo rodando na porta {porta}")
+    httpd.serve_forever()
 
 # --- INGESTÃO COM TMDB ---
 def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int):
@@ -264,7 +364,7 @@ async def processar_edicao(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if msg:
         salvar_ou_atualizar_midia((msg.caption or msg.text or "").strip(), msg.chat_id, msg.message_id)
 
-# --- MENUS E BOTÕES TELEGRAM ---
+# --- MENUS E COMANDOS ---
 def menu_principal():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🎬 Filmes", callback_data="cat:filme:0"),
@@ -280,6 +380,51 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c = conn.cursor()
     c.execute("INSERT INTO usuarios (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING;", (user_id,))
     conn.commit()
+
+    if context.args and context.args[0].startswith("play_"):
+        partes = context.args[0].split("_")
+        titulo_id = int(partes[1])
+        
+        if len(partes) >= 4:
+            temp = int(partes[2])
+            ep = int(partes[3])
+            c.execute(
+                "SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s LIMIT 1;",
+                (titulo_id, temp, ep)
+            )
+        else:
+            c.execute("SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s LIMIT 1;", (titulo_id,))
+            temp, ep = 0, 0
+            
+        arq = c.fetchone()
+        if arq:
+            arq_id, chat_origem, msg_origem = arq
+            
+            btn_prox = None
+            if len(partes) >= 4:
+                c.execute(
+                    "SELECT id, episodio FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s;",
+                    (titulo_id, temp, ep + 1)
+                )
+                prox = c.fetchone()
+                if prox:
+                    btn_prox = InlineKeyboardMarkup([[InlineKeyboardButton(f"▶️ Próximo (Ep {prox[1]:02d})", callback_data=f"play:{prox[0]}")]])
+
+            await context.bot.copy_message(
+                chat_id=update.effective_chat.id,
+                from_chat_id=chat_origem,
+                message_id=msg_origem,
+                reply_markup=btn_prox
+            )
+            c.close()
+            conn.close()
+            return
+        else:
+            await update.message.reply_text("❌ Arquivo correspondente não foi encontrado no catálogo.")
+            c.close()
+            conn.close()
+            return
+
     c.close()
     conn.close()
 
@@ -294,7 +439,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_markdown("Categorias disponíveis:", reply_markup=menu_principal())
 
-# --- RESPOSTA AOS CLIQUES DO MINI APP ---
 async def receber_dados_webapp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dados_raw = update.effective_message.web_app_data.data
     try:
@@ -330,7 +474,7 @@ async def receber_dados_webapp(update: Update, context: ContextTypes.DEFAULT_TYP
     else:
         await update.message.reply_text("Arquivo não encontrado no catálogo do Supabase.")
 
-# --- CALLBACKS DO MENU NATIVO ---
+# --- NAVEGAÇÃO DOS BOTÕES NATIVOS ---
 async def tratar_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -442,7 +586,7 @@ async def tratar_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c.close()
     conn.close()
 
-# --- BUSCA DIRETA & STATS ---
+# --- BUSCA TEXTUAL & STATS ---
 async def buscar_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     termo = normalizar(update.message.text)
     if len(termo) < 2:
@@ -495,11 +639,25 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_markdown(texto)
 
-# --- EXECUÇÃO PRINCIPAL ---
-if __name__ == "__main__":
+# --- INICIALIZAÇÃO ASSÍNCRONA ---
+async def main():
     init_db()
-    
-    app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
+    threading.Thread(target=iniciar_servidor_web, daemon=True).start()
+
+    request_config = HTTPXRequest(
+        connect_timeout=60.0,
+        read_timeout=60.0,
+        write_timeout=60.0,
+        pool_timeout=60.0
+    )
+
+    app = (
+        ApplicationBuilder()
+        .token(TOKEN)
+        .request(request_config)
+        .get_updates_request(request_config)
+        .build()
+    )
 
     app.add_handler(MessageHandler((filters.ChatType.CHANNEL | filters.ChatType.GROUPS | filters.ChatType.SUPERGROUP) & ~filters.COMMAND, processar_postagem))
     app.add_handler(MessageHandler(filters.UpdateType.EDITED_CHANNEL_POST | filters.UpdateType.EDITED_MESSAGE, processar_edicao))
@@ -512,4 +670,20 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, receber_dados_webapp))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, buscar_texto))
 
-    app.run_polling()
+    async with app:
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
+        logging.info("--> [BOT MINIFLIX] Rodando e pronto para receber mensagens!")
+        
+        stop_event = asyncio.Event()
+        await stop_event.wait()
+
+if __name__ == "__main__":
+    if sys.platform.startswith("win"):
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logging.info("Bot finalizado pelo usuário.")
