@@ -2,91 +2,423 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Miniflix</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { background-color: #141414; color: #fff; padding: 16px; }
-    h1 { font-size: 1.5rem; color: #e50914; margin-bottom: 16px; text-align: center; }
-    
-    .tabs { display: flex; gap: 8px; margin-bottom: 20px; overflow-x: auto; padding-bottom: 4px; }
-    .tab { background: #2f2f2f; border: none; color: #fff; padding: 8px 16px; border-radius: 20px; font-weight: 600; cursor: pointer; white-space: nowrap; }
-    .tab.active { background: #e50914; }
+    :root {
+      --bg-color: #141414;
+      --card-bg: #1f1f1f;
+      --accent: #e50914;
+      --text: #ffffff;
+      --text-muted: #aaaaaa;
+      --border: #2e2e2e;
+    }
 
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 14px; }
-    .card { background: #1f1f1f; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; cursor: pointer; transition: transform 0.2s; border: 1px solid #333; }
-    .card:active { transform: scale(0.96); }
-    .poster { width: 100%; height: 180px; object-fit: cover; background-color: #2a2a2a; }
-    .info { padding: 8px; display: flex; flex-direction: column; flex-grow: 1; justify-content: space-between; }
-    .title { font-size: 0.85rem; font-weight: bold; margin-bottom: 4px; }
-    .tag { font-size: 0.7rem; color: #aaa; text-transform: uppercase; }
-    .btn-assistir { margin-top: 8px; background: #e50914; border: none; color: white; padding: 6px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; width: 100%; cursor: pointer; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+    body { background-color: var(--bg-color); color: var(--text); padding: 16px; padding-bottom: 40px; }
+
+    /* Header e Barra de Busca */
+    header { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+    .brand { font-size: 1.6rem; font-weight: 900; color: var(--accent); letter-spacing: 1.5px; text-align: center; }
+    .search-box { width: 100%; position: relative; }
+    .search-box input {
+      width: 100%;
+      background: #222;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: #fff;
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .search-box input:focus { border-color: var(--accent); }
+
+    /* Abas de Categoria */
+    .tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: none; }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab {
+      background: #242424;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 7px 16px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s;
+    }
+    .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    /* Grade de Mídias */
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(135px, 1fr)); gap: 12px; margin-top: 10px; }
+    .card {
+      background: var(--card-bg);
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      transition: transform 0.15s ease;
+    }
+    .card:active { transform: scale(0.97); }
+    .poster-container { position: relative; width: 100%; padding-top: 145%; background: #222; }
+    .poster { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+    .badge {
+      position: absolute;
+      top: 6px;
+      left: 6px;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(4px);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.65rem;
+      font-weight: bold;
+      text-transform: uppercase;
+      color: #fff;
+    }
+    .card-info { padding: 8px; display: flex; flex-direction: column; gap: 2px; }
+    .card-title { font-size: 0.82rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .card-meta { font-size: 0.7rem; color: var(--text-muted); }
+
+    /* Modal / Bottom Sheet de Detalhes */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(6px);
+      display: none;
+      align-items: flex-end;
+      z-index: 100;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-content {
+      background: #1a1a1a;
+      width: 100%;
+      max-height: 85vh;
+      border-radius: 16px 16px 0 0;
+      padding: 20px;
+      overflow-y: auto;
+      border-top: 1px solid #333;
+      animation: slideUp 0.25s ease-out;
+    }
+    @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+    .modal-header { display: flex; gap: 14px; margin-bottom: 16px; }
+    .modal-poster { width: 90px; height: 130px; border-radius: 6px; object-fit: cover; }
+    .modal-info { display: flex; flex-direction: column; justify-content: center; gap: 6px; }
+    .modal-title { font-size: 1.1rem; font-weight: bold; }
+    .modal-synopsis { font-size: 0.8rem; color: var(--text-muted); line-height: 1.4; margin-bottom: 16px; }
+
+    /* Seletor de Temporadas e Grade de Episódios */
+    .season-selector { margin-bottom: 14px; }
+    .season-selector select {
+      width: 100%;
+      background: #282828;
+      color: #fff;
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid #444;
+      font-size: 0.85rem;
+      outline: none;
+    }
+    .episodes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(65px, 1fr)); gap: 8px; margin-bottom: 16px; }
+    .ep-btn {
+      background: #2a2a2a;
+      border: 1px solid #3a3a3a;
+      color: #fff;
+      padding: 10px 4px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-align: center;
+      cursor: pointer;
+    }
+    .ep-btn:active { background: var(--accent); border-color: var(--accent); }
+
+    .play-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      width: 100%;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: bold;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .play-btn:active { opacity: 0.85; }
+    .close-btn {
+      background: #333;
+      color: #fff;
+      border: none;
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      margin-top: 8px;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
-  <h1>MINIFLIX</h1>
 
-  <div class="tabs">
-    <button class="tab active" onclick="filtrar('todos')">Todos</button>
-    <button class="tab" onclick="filtrar('filme')">Filmes</button>
-    <button class="tab" onclick="filtrar('serie')">Séries</button>
-    <button class="tab" onclick="filtrar('anime')">Animes</button>
-    <button class="tab" onclick="filtrar('cartoon')">Cartoons</button>
+  <header>
+    <div class="brand">MINIFLIX</div>
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="Buscar filmes, séries, animes..." oninput="executarBusca()" />
+    </div>
+    <div class="tabs">
+      <button class="tab active" onclick="filtrarCategoria('todos')">Todos</button>
+      <button class="tab" onclick="filtrarCategoria('filme')">Filmes</button>
+      <button class="tab" onclick="filtrarCategoria('serie')">Séries</button>
+      <button class="tab" onclick="filtrarCategoria('anime')">Animes</button>
+      <button class="tab" onclick="filtrarCategoria('cartoon')">Cartoons</button>
+    </div>
+  </header>
+
+  <div class="grid" id="catalogoGrid"></div>
+
+  <!-- Modal de Detalhes -->
+  <div class="modal-overlay" id="modalOverlay" onclick="fecharModalExterno(event)">
+    <div class="modal-content">
+      <div class="modal-header">
+        <img src="" id="modalImg" class="modal-poster" alt="" />
+        <div class="modal-info">
+          <span class="badge" id="modalBadge"></span>
+          <div class="modal-title" id="modalTitulo"></div>
+          <div class="card-meta" id="modalMeta"></div>
+        </div>
+      </div>
+
+      <p class="modal-synopsis" id="modalSinopse"></p>
+
+      <!-- Painel Dinâmico: Apenas Filme -->
+      <div id="painelFilme" style="display: none;">
+        <button class="play-btn" onclick="solicitarMidiaFilme()">▶ Assistir Filme</button>
+      </div>
+
+      <!-- Painel Dinâmico: Séries/Animes com Temporadas e Episódios -->
+      <div id="painelSerie" style="display: none;">
+        <div class="season-selector">
+          <select id="selectTemporada" onchange="mudarTemporada()"></select>
+        </div>
+        <div class="episodes-grid" id="gridEpisodios"></div>
+      </div>
+
+      <button class="close-btn" onclick="fecharModal()">Fechar</button>
+    </div>
   </div>
-
-  <div class="grid" id="catalogo"></div>
 
   <script>
     const tg = window.Telegram.WebApp;
     tg.ready();
     tg.expand();
 
-    // Dados de exemplo (podem ser alimentados via API posteriormente)
-    const itens = [
-      { id: 1, tipo: 'filme', titulo: 'Matrix (1999)', img: 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=300' },
-      { id: 2, tipo: 'serie', titulo: 'Ruptura S01E01', img: 'https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?w=300' },
-      { id: 3, tipo: 'anime', titulo: 'Attack on Titan S04E15', img: 'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=300' },
-      { id: 4, tipo: 'cartoon', titulo: 'X-Men 97 S01E01', img: 'https://images.unsplash.com/photo-1563089145-599997674d42?w=300' }
+    // Catálogo de teste estruturado (preparado para espelhar o banco PostgreSQL)
+    const acervo = [
+      {
+        id: 1,
+        tipo: 'filme',
+        titulo: 'Interestelar',
+        ano: 2014,
+        sinopse: 'Um grupo de astronautas viaja através de um buraco de minhoca em busca de um novo lar para a humanidade.',
+        img: 'https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg'
+      },
+      {
+        id: 2,
+        tipo: 'serie',
+        titulo: 'Ruptura (Severance)',
+        ano: 2022,
+        sinopse: 'Mark lidera uma equipe de funcionários de escritório cujas memórias foram divididas cirurgicamente entre trabalho e vida pessoal.',
+        img: 'https://image.tmdb.org/t/p/w500/1XddMmIRq7Bllt3dtWPIEpNV998.jpg',
+        temporadas: {
+          1: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+          2: [1, 2, 3]
+        }
+      },
+      {
+        id: 3,
+        tipo: 'anime',
+        titulo: 'Attack on Titan',
+        ano: 2013,
+        sinopse: 'A humanidade luta pela sobrevivência dentro de muralhas gigantes contra titãs devoradores de homens.',
+        img: 'https://image.tmdb.org/t/p/w500/hTP1DtLGFamjfu8WqjnuQdP1n4i.jpg',
+        temporadas: {
+          1: [1, 2, 3, 4, 5],
+          4: [1, 2, 3, 4, 5, 6, 7, 8]
+        }
+      },
+      {
+        id: 4,
+        tipo: 'cartoon',
+        titulo: 'X-Men 97',
+        ano: 2024,
+        sinopse: 'A continuação direta da clássica animação dos mutantes dos anos 90.',
+        img: 'https://image.tmdb.org/t/p/w500/9adOqFnBv7x91wR4nN2m3cK0ZlE.jpg',
+        temporadas: {
+          1: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        }
+      }
     ];
 
-    function renderizar(lista) {
-      const container = document.getElementById('catalogo');
-      container.innerHTML = '';
+    let categoriaAtual = 'todos';
+    let itemSelecionado = null;
+
+    function renderizarGrade(lista) {
+      const grid = document.getElementById('catalogoGrid');
+      grid.innerHTML = '';
+
+      if (lista.length === 0) {
+        grid.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: #777; margin-top: 30px;">Nenhum título encontrado.</p>';
+        return;
+      }
+
       lista.forEach(item => {
         const card = document.createElement('div');
         card.className = 'card';
+        card.onclick = () => abrirModal(item);
         card.innerHTML = `
-          <img src="${item.img}" class="poster" alt="${item.titulo}" />
-          <div class="info">
-            <div>
-              <div class="tag">${item.tipo}</div>
-              <div class="title">${item.titulo}</div>
-            </div>
-            <button class="btn-assistir" onclick="solicitarConteudo('${item.tipo}', ${item.id})">Assistir</button>
+          <div class="poster-container">
+            <span class="badge">${item.tipo}</span>
+            <img src="${item.img}" class="poster" alt="${item.titulo}" loading="lazy" />
+          </div>
+          <div class="card-info">
+            <div class="card-title">${item.titulo}</div>
+            <div class="card-meta">${item.ano}</div>
           </div>
         `;
-        container.appendChild(card);
+        grid.appendChild(card);
       });
     }
 
-    function filtrar(categoria) {
+    function filtrarCategoria(cat) {
+      if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+      categoriaAtual = cat;
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       event.target.classList.add('active');
-      if (categoria === 'todos') {
-        renderizar(itens);
+      document.getElementById('searchInput').value = '';
+      
+      const filtrados = cat === 'todos' ? acervo : acervo.filter(i => i.tipo === cat);
+      renderizarGrade(filtrados);
+    }
+
+    function executarBusca() {
+      const termo = document.getElementById('searchInput').value.toLowerCase().trim();
+      let filtrados = acervo;
+
+      if (categoriaAtual !== 'todos') {
+        filtrados = filtrados.filter(i => i.tipo === categoriaAtual);
+      }
+
+      if (termo) {
+        filtrados = filtrados.filter(i => i.titulo.toLowerCase().includes(termo));
+      }
+
+      renderizarGrade(filtrados);
+    }
+
+    // Controle do Modal
+    function abrirModal(item) {
+      if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+      itemSelecionado = item;
+
+      document.getElementById('modalImg').src = item.img;
+      document.getElementById('modalBadge').innerText = item.tipo;
+      document.getElementById('modalTitulo').innerText = item.titulo;
+      document.getElementById('modalMeta').innerText = `${item.ano} • ${item.tipo.toUpperCase()}`;
+      document.getElementById('modalSinopse').innerText = item.sinopse || 'Sem sinopse disponível.';
+
+      const painelFilme = document.getElementById('painelFilme');
+      const painelSerie = document.getElementById('painelSerie');
+
+      if (item.tipo === 'filme') {
+        painelFilme.style.display = 'block';
+        painelSerie.style.display = 'none';
       } else {
-        renderizar(itens.filter(i => i.tipo === categoria));
+        painelFilme.style.display = 'none';
+        painelSerie.style.display = 'block';
+
+        const selectTemp = document.getElementById('selectTemporada');
+        selectTemp.innerHTML = '';
+        Object.keys(item.temporadas).forEach(temp => {
+          const opt = document.createElement('option');
+          opt.value = temp;
+          opt.innerText = `Temporada ${temp}`;
+          selectTemp.appendChild(opt);
+        });
+
+        mudarTemporada();
+      }
+
+      document.getElementById('modalOverlay').classList.add('open');
+
+      // Ativa o botão nativo de voltar do Telegram
+      if (tg.BackButton) {
+        tg.BackButton.show();
+        tg.BackButton.onClick(fecharModal);
       }
     }
 
-    function solicitarConteudo(tipo, id) {
-      // Envia o payload de volta para a conversa do bot
-      tg.sendData(JSON.stringify({ acao: 'play', tipo: tipo, id: id }));
+    function mudarTemporada() {
+      const selectTemp = document.getElementById('selectTemporada');
+      const tempEscolhida = selectTemp.value;
+      const episodios = itemSelecionado.temporadas[tempEscolhida] || [];
+      const grid = document.getElementById('gridEpisodios');
+      grid.innerHTML = '';
+
+      episodios.forEach(ep => {
+        const btn = document.createElement('button');
+        btn.className = 'ep-btn';
+        btn.innerText = `EP ${ep < 10 ? '0' + ep : ep}`;
+        btn.onclick = () => solicitarMidiaEpisodio(tempEscolhida, ep);
+        grid.appendChild(btn);
+      });
+    }
+
+    function fecharModal() {
+      document.getElementById('modalOverlay').classList.remove('open');
+      if (tg.BackButton) tg.BackButton.hide();
+    }
+
+    function fecharModalExterno(e) {
+      if (e.target.id === 'modalOverlay') fecharModal();
+    }
+
+    // Comunicação com o Bot Telegram
+    function solicitarMidiaFilme() {
+      if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+      const payload = {
+        acao: 'play',
+        tipo: 'filme',
+        id: itemSelecionado.id
+      };
+      tg.sendData(JSON.stringify(payload));
       tg.close();
     }
 
-    renderizar(itens);
+    function solicitarMidiaEpisodio(temporada, episodio) {
+      if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+      const payload = {
+        acao: 'play',
+        tipo: itemSelecionado.tipo,
+        id: itemSelecionado.id,
+        temporada: parseInt(temporada),
+        episodio: parseInt(episodio)
+      };
+      tg.sendData(JSON.stringify(payload));
+      tg.close();
+    }
+
+    // Inicialização
+    renderizarGrade(acervo);
   </script>
 </body>
 </html>
