@@ -526,28 +526,42 @@
       if (e.target.id === 'modalOverlay') fecharModal();
     }
 
-    function solicitarMidiaFilme() {
+  async function solicitarMidiaFilme() {
   if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
   
-  const link = `https://t.me/${BOT_USERNAME}?start=play_${itemSelecionado.id}`;
+  const userId = tg?.initDataUnsafe?.user?.id;
   
-  if (tg?.openTelegramLink) {
-    tg.openTelegramLink(link);
-  } else {
-    window.location.href = link;
+  if (userId) {
+    try {
+      await fetch(`${API_BASE_URL}/api/play?user_id=${userId}&titulo_id=${itemSelecionado.id}&tipo=filme`);
+      if (tg?.close) tg.close();
+      return;
+    } catch (err) {
+      console.error("Erro ao solicitar filme:", err);
+    }
   }
+
+  // Fallback caso abra fora do Telegram
+  window.open(`https://t.me/${BOT_USERNAME}?start=play_${itemSelecionado.id}`, '_blank');
 }
 
-function solicitarMidiaEpisodio(temporada, episodio) {
+async function solicitarMidiaEpisodio(temporada, episodio) {
   if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
   
-  const link = `https://t.me/${BOT_USERNAME}?start=play_${itemSelecionado.id}_${temporada}_${episodio}`;
+  const userId = tg?.initDataUnsafe?.user?.id;
   
-  if (tg?.openTelegramLink) {
-    tg.openTelegramLink(link);
-  } else {
-    window.location.href = link;
+  if (userId) {
+    try {
+      await fetch(`${API_BASE_URL}/api/play?user_id=${userId}&titulo_id=${itemSelecionado.id}&tipo=${itemSelecionado.tipo}&temporada=${temporada}&episodio=${episodio}`);
+      if (tg?.close) tg.close();
+      return;
+    } catch (err) {
+      console.error("Erro ao solicitar episodio:", err);
+    }
   }
+
+  // Fallback caso abra fora do Telegram
+  window.open(`https://t.me/${BOT_USERNAME}?start=play_${itemSelecionado.id}_${temporada}_${episodio}`, '_blank');
 }
 
     // Inicialização
