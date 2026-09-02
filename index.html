@@ -793,7 +793,7 @@
 
       grid.innerHTML = lista.map(item => {
         const isFav = favs.includes(item.id);
-        const notaHtml = item.nota ? `<div class="badge-rating">⭐ ${item.nota.toFixed(1)}</div>` : '';
+        // const notaHtml = item.nota ? `<div class="badge-rating">⭐ ${item.nota.toFixed(1)}</div>` : '';
         const audioClass = item.audio?.toLowerCase().includes('leg') ? 'leg' : 'dub';
         const audioTag = item.audio ? `<div class="badge-audio ${audioClass}">${audioClass.toUpperCase()}</div>` : '';
 
@@ -801,7 +801,7 @@
           <div class="card" onclick="abrirModal(${item.id})">
             <div class="poster-box">
               <img src="${item.img}" alt="${item.titulo}" loading="lazy" />
-              ${notaHtml}
+              
               ${audioTag}
               <button class="card-fav-btn" onclick="event.stopPropagation(); toggleFavorito(${item.id})">
                 ${isFav ? '❤️' : '🤍'}
