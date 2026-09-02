@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Miniflix</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <style>f
+  <style>
     :root {
       --bg: #0d0f14;
       --card-bg: #161a23;
@@ -250,23 +250,6 @@
     }
 
     /* BADGES */
-    .badge-rating {
-      position: absolute;
-      top: 6px;
-      left: 6px;
-      background: rgba(0, 0, 0, 0.75);
-      backdrop-filter: blur(4px);
-      color: var(--gold);
-      font-size: 10px;
-      font-weight: 800;
-      padding: 2px 5px;
-      border-radius: 4px;
-      display: flex;
-      align-items: center;
-      gap: 2px;
-      border: 1px solid rgba(255, 193, 7, 0.3);
-    }
-
     .badge-audio {
       position: absolute;
       top: 6px;
@@ -536,6 +519,7 @@
       font-size: 14px;
     }
 
+    /* TELA DE CARREGAMENTO (LOADING OVERLAY) */
     .loading-overlay {
       position: fixed;
       inset: 0;
@@ -605,7 +589,6 @@
       from { opacity: 0; transform: scale(0.98); }
       to { opacity: 1; transform: scale(1); }
     }
-    
   </style>
 </head>
 <body>
@@ -634,9 +617,7 @@
   </header>
 
   <!-- CHIPS DE GÊNERO -->
-  <div class="chips-container" id="genresChips">
-    <!-- Gerado via JS -->
-  </div>
+  <div class="chips-container" id="genresChips"></div>
 
   <!-- CONTINUAR ASSISTINDO -->
   <div id="historySection" style="display: none;">
@@ -700,9 +681,19 @@
     <button class="btn-close-trailer" onclick="fecharTrailer()">✕ Fechar Trailer</button>
   </div>
 
+  <!-- TELA DE CARREGAMENTO / DISPARO DE MÍDIA -->
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="loader-box">
+      <div class="loader-spinner"></div>
+      <div class="loading-title" id="loadingTitle">Preparando mídia...</div>
+      <div class="loading-sub" id="loadingSub">Enviando o vídeo diretamente para o seu chat no Telegram...</div>
+      <div class="loading-badge" id="loadingBadge">⚡ Miniflix Instant Play</div>
+    </div>
+  </div>
+
   <script>
     // --- CONFIGURAÇÕES ---
-    const API_BASE_URL = "https://miniflix-app.onrender.com"; // Substitua pela sua URL do Render
+    const API_BASE_URL = "https://miniflix-app.onrender.com"; // Verifique se esta é a URL do seu serviço no Render
     const BOT_USERNAME = "miniflix_drive_bot";
 
     const tg = window.Telegram?.WebApp;
@@ -844,16 +835,10 @@
       const grid = document.getElementById('catalogGrid');
 
       let lista = catalogoCompleto.filter(item => {
-        // Categoria / Favoritos
         if (categoriaAtiva === 'favoritos' && !favs.includes(item.id)) return false;
         if (categoriaAtiva !== 'todos' && categoriaAtiva !== 'favoritos' && item.tipo !== categoriaAtiva) return false;
-        
-        // Gênero
         if (generoAtivo !== 'todos' && !(item.generos || []).includes(generoAtivo)) return false;
-
-        // Busca
         if (termo && !item.titulo.toLowerCase().includes(termo)) return false;
-
         return true;
       });
 
@@ -864,7 +849,6 @@
 
       grid.innerHTML = lista.map(item => {
         const isFav = favs.includes(item.id);
-        // const notaHtml = item.nota ? `<div class="badge-rating">⭐ ${item.nota.toFixed(1)}</div>` : '';
         const audioClass = item.audio?.toLowerCase().includes('leg') ? 'leg' : 'dub';
         const audioTag = item.audio ? `<div class="badge-audio ${audioClass}">${audioClass.toUpperCase()}</div>` : '';
 
@@ -872,7 +856,6 @@
           <div class="card" onclick="abrirModal(${item.id})">
             <div class="poster-box">
               <img src="${item.img}" alt="${item.titulo}" loading="lazy" />
-              
               ${audioTag}
               <button class="card-fav-btn" onclick="event.stopPropagation(); toggleFavorito(${item.id})">
                 ${isFav ? '❤️' : '🤍'}
@@ -907,18 +890,14 @@
       document.getElementById('modalAudio').innerText = `🔊 ${itemSelecionado.audio || 'Dublado'}`;
       document.getElementById('modalSynopsis').innerText = itemSelecionado.sinopse;
 
-      // Gêneros
       const genresBox = document.getElementById('modalGenres');
       genresBox.innerHTML = (itemSelecionado.generos || []).map(g => `<span class="genre-tag">${g}</span>`).join('');
 
-      // Trailer
       const btnTrailer = document.getElementById('modalTrailerBtn');
       btnTrailer.style.display = itemSelecionado.trailer_key ? 'flex' : 'none';
 
-      // Favorito
       atualizarBotaoFavModal(favs.includes(itemSelecionado.id));
 
-      // Botão Play e Episódios
       const playBtn = document.getElementById('modalPlayBtn');
       const epSec = document.getElementById('modalEpisodesSec');
       const epContainer = document.getElementById('episodesContainer');
@@ -982,7 +961,7 @@
       solicitarMidia(id, temp, ep);
     }
 
-function mostrarLoading(titulo, sub) {
+    function mostrarLoading(titulo, sub) {
       document.getElementById('loadingTitle').innerText = titulo;
       document.getElementById('loadingSub').innerText = sub;
       document.getElementById('loadingOverlay').classList.add('active');
@@ -996,15 +975,12 @@ function mostrarLoading(titulo, sub) {
       const item = catalogoCompleto.find(i => i.id === id);
       if (item) salvarHistorico(item, temp, ep);
 
-      // Feedback tátil de vibração
       if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 
-      // Define a mensagem da tela de espera
       const subTexto = (item?.tipo === 'filme' || (temp === 0 && ep === 0))
         ? `Enviando "${item?.titulo || 'o filme'}" para o seu chat...`
         : `Enviando Temp ${temp} • Ep ${ep.toString().padStart(2, '0')} para o seu chat...`;
 
-      // Exibe o spinner de carregamento na tela
       mostrarLoading("🍿 Carregando...", subTexto);
 
       const userId = tg?.initDataUnsafe?.user?.id;
@@ -1017,7 +993,6 @@ function mostrarLoading(titulo, sub) {
             document.getElementById('loadingTitle').innerText = "✅ Pronto!";
             document.getElementById('loadingSub').innerText = "Vídeo enviado! Abrindo a conversa...";
             
-            // Aguarda 400ms para o usuário ver o "Pronto!" e fecha o app
             setTimeout(() => {
               if (tg?.close) tg.close();
             }, 400);
@@ -1037,11 +1012,6 @@ function mostrarLoading(titulo, sub) {
 
       // Fallback quando aberto fora do Telegram
       esconderLoading();
-      const query = temp === 0 && ep === 0 ? `play_${id}` : `play_${id}_${temp}_${ep}`;
-      window.open(`https://t.me/${BOT_USERNAME}?start=${query}`, '_blank');
-    }
-
-      // Fallback
       const query = temp === 0 && ep === 0 ? `play_${id}` : `play_${id}_${temp}_${ep}`;
       window.open(`https://t.me/${BOT_USERNAME}?start=${query}`, '_blank');
     }
