@@ -737,23 +737,39 @@ async def main():
         .build()
     )
 
-    app.add_handler(MessageHandler((filters.ChatType.CHANNEL | filters.ChatType.GROUPS | filters.ChatType.SUPERGROUP) & ~filters.COMMAND, processar_postagem))
-    app.add_handler(MessageHandler(filters.UpdateType.EDITED_CHANNEL_POST | filters.UpdateType.EDITED_MESSAGE, processar_edicao))
+    # -------------------------------------------------------------
+    # 📡 AQUI ESTÃO OS MONITORAMENTOS (HANDLERS):
+    # -------------------------------------------------------------
     
+    # 1. Antena para POSTS NOVOS no canal (quando você envia um filme do zero)
+    app.add_handler(MessageHandler(
+        (filters.ChatType.CHANNEL | filters.ChatType.GROUPS | filters.ChatType.SUPERGROUP) & ~filters.COMMAND, 
+        processar_postagem
+    ))
+    
+    # 2. Antena para POSTS EDITADOS no canal (quando você altera a legenda de um filme antigo)
+    app.add_handler(MessageHandler(
+        filters.UpdateType.EDITED_CHANNEL_POST | filters.UpdateType.EDITED_MESSAGE, 
+        processar_postagem
+    ))
+
+    # 3. Antenas para comandos e mensagens no privado
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stats", cmd_stats))
-
     app.add_handler(CallbackQueryHandler(tratar_callbacks))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, buscar_texto))
 
+    # Inicia o bot
     async with app:
         await app.initialize()
         await app.start()
+        # allowed_updates=Update.ALL_TYPES garante que o Telegram mande TODOS os tipos de eventos (inclusive edições)
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
         logging.info("--> [BOT MINIFLIX] Rodando com sucesso!")
         
         stop_event = asyncio.Event()
         await stop_event.wait()
+
 
 if __name__ == "__main__":
     if sys.platform.startswith("win"):
