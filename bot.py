@@ -50,10 +50,10 @@ def normalizar(texto: str) -> str:
         return ""
     return unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode("utf-8").lower().strip()
 
-# --- INTEGRAÇÃO COM TMDB ---
+# --- INTEGRAÇÃO COMPLETA COM TMDB (GÊNEROS, NOTA, DURAÇÃO, TRAILER) ---
 def buscar_metadados_tmdb(nome_titulo: str, categoria: str):
     tipo_busca = "movie" if categoria == "filme" else "tv"
-    url = f"https://api.themoviedb.org/3/search/{tipo_busca}"
+    url_busca = f"https://api.themoviedb.org/3/search/{tipo_busca}"
     params = {
         "api_key": TMDB_API_KEY,
         "query": nome_titulo,
@@ -62,25 +62,82 @@ def buscar_metadados_tmdb(nome_titulo: str, categoria: str):
     }
 
     try:
-        resp = requests.get(url, params=params, timeout=10)
+        resp = requests.get(url_busca, params=params, timeout=10)
         dados = resp.json()
         resultados = dados.get("results", [])
 
         if not resultados:
-            return None, None, None
+            return None, None, None, None, None, [], None
 
         item = resultados[0]
-        poster_path = item.get("poster_path")
-        poster_url = f"{TMDB_IMG_BASE}{poster_path}" if poster_path else "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=300"
-        sinopse = item.get("overview") or "Sem sinopse cadastrada."
-        
-        data_lancamento = item.get("release_date") or item.get("first_air_date") or ""
-        ano = int(data_lancamento.split("-")[0]) if "-" in data_lancamento else None
+        tmdb_id = item.get("id")
 
-        return poster_url, sinopse, ano
+        # Busca detalhes aprofundados com vídeos/trailers
+        url_det = f"https://api.themoviedb.org/3/{tipo_busca}/{tmdb_id}"
+        params_det = {
+            "api_key": TMDB_API_KEY,
+            "language": "pt-BR",
+            "append_to_response": "videos"
+        }
+        resp_det = requests.get(url_det, params=params_det, timeout=10)
+        detalhes = resp_det.json() if resp_det.status_code == 200 else item
+
+        poster_path = detalhes.get("poster_path") or item.get("poster_path")
+        poster_url = f"{TMDB_IMG_BASE}{poster_path}" if poster_path else "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=300"
+        sinopse = detalhes.get("overview") or item.get("overview") or "Sem sinopse cadastrada."
+        
+        data_lanc = detalhes.get("release_date") or detalhes.get("first_air_date") or ""
+        ano = int(data_lanc.split("-")[0]) if "-" in data_lanc else None
+
+        # Nota
+        nota = round(float(detalhes.get("vote_average", 0.0)), 1)
+
+        # Duração
+        duracao = ""
+        if tipo_busca == "movie":
+            runtime = detalhes.get("runtime")
+            if runtime:
+                horas = runtime // 60
+                mins = runtime % 60
+                duracao = f"{horas}h {mins:02d}m" if horas > 0 else f"{mins}m"
+        else:
+            ep_runtimes = detalhes.get("episode_run_time") or []
+            if ep_runtimes:
+                duracao = f"~{ep_runtimes[0]}m/ep"
+            else:
+                duracao = "Série"
+
+        # Gêneros
+        generos = [g.get("name") for g in detalhes.get("genres", []) if g.get("name")]
+
+        # Trailer (YouTube)
+        trailer_key = None
+        videos = detalhes.get("videos", {}).get("results", [])
+        for v in videos:
+            if v.get("site") == "YouTube" and v.get("type") in ["Trailer", "Teaser"]:
+                trailer_key = v.get("key")
+                break
+
+        # Fallback de trailer em inglês caso não haja em pt-BR
+        if not trailer_key and tmdb_id:
+            try:
+                resp_vid_en = requests.get(
+                    f"https://api.themoviedb.org/3/{tipo_busca}/{tmdb_id}/videos",
+                    params={"api_key": TMDB_API_KEY, "language": "en-US"},
+                    timeout=5
+                )
+                videos_en = resp_vid_en.json().get("results", [])
+                for v in videos_en:
+                    if v.get("site") == "YouTube" and v.get("type") in ["Trailer", "Teaser"]:
+                        trailer_key = v.get("key")
+                        break
+            except Exception:
+                pass
+
+        return poster_url, sinopse, ano, nota, duracao, generos, trailer_key
     except Exception as e:
-        logging.error(f"Erro ao consultar TMDB: {e}")
-        return None, None, None
+        logging.error(f"Erro ao consultar TMDB detalhado: {e}")
+        return None, None, None, None, None, [], None
 
 # --- BANCO DE DADOS (SUPABASE COM MIGRAÇÃO AUTOMÁTICA) ---
 def init_db():
@@ -94,14 +151,24 @@ def init_db():
             nome_busca TEXT NOT NULL,
             poster_url TEXT,
             sinopse TEXT,
-            ano INTEGER
+            ano INTEGER,
+            nota NUMERIC(3,1),
+            duracao TEXT,
+            generos TEXT,
+            trailer_key TEXT,
+            audio TEXT
         );
     """)
     c.execute("""
         ALTER TABLE titulos 
         ADD COLUMN IF NOT EXISTS poster_url TEXT,
         ADD COLUMN IF NOT EXISTS sinopse TEXT,
-        ADD COLUMN IF NOT EXISTS ano INTEGER;
+        ADD COLUMN IF NOT EXISTS ano INTEGER,
+        ADD COLUMN IF NOT EXISTS nota NUMERIC(3,1),
+        ADD COLUMN IF NOT EXISTS duracao TEXT,
+        ADD COLUMN IF NOT EXISTS generos TEXT,
+        ADD COLUMN IF NOT EXISTS trailer_key TEXT,
+        ADD COLUMN IF NOT EXISTS audio TEXT;
     """)
     c.execute("""
         CREATE TABLE IF NOT EXISTS arquivos (
@@ -124,12 +191,12 @@ def init_db():
     c.close()
     conn.close()
 
-# --- SERVIDOR WEB NATIVO (API DO CATÁLOGO, DISPARO DE MÍDIA E PING DO RENDER) ---
+# --- SERVIDOR WEB NATIVO (API DO CATÁLOGO, DISPARO E HISTÓRICO) ---
 class ServidorWebHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         
-        # 1. Rota de disparo de mídia chamada pelo Mini App
+        # 1. Rota de disparo de mídia
         if parsed.path == "/api/play":
             try:
                 params = parse_qs(parsed.query)
@@ -205,13 +272,14 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(corpo)
 
-        # 2. Rota do Catálogo
+        # 2. Rota do Catálogo com Metadados Ricos
         elif parsed.path == "/api/catalogo":
             try:
                 conn = get_db_connection()
                 c = conn.cursor()
                 c.execute("""
                     SELECT t.id, t.categoria, t.nome, t.poster_url, t.sinopse, t.ano,
+                           t.nota, t.duracao, t.generos, t.trailer_key, t.audio,
                            a.temporada, a.episodio
                     FROM titulos t
                     LEFT JOIN arquivos a ON t.id = a.titulo_id
@@ -223,13 +291,26 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
 
                 titulos_map = {}
                 for r in linhas:
-                    t_id, cat, nome, poster, sinopse, ano, temp, ep = r
+                    t_id, cat, nome, poster, sinopse, ano, nota, duracao, generos_raw, trailer_key, audio, temp, ep = r
+                    
                     if t_id not in titulos_map:
+                        generos_list = []
+                        if generos_raw:
+                            try:
+                                generos_list = json.loads(generos_raw) if generos_raw.startswith("[") else [g.strip() for g in generos_raw.split(",") if g.strip()]
+                            except Exception:
+                                generos_list = []
+
                         titulos_map[t_id] = {
                             "id": t_id,
                             "tipo": cat,
                             "titulo": nome,
                             "ano": ano or "N/A",
+                            "nota": float(nota) if nota else None,
+                            "duracao": duracao or "",
+                            "generos": generos_list,
+                            "trailer_key": trailer_key or "",
+                            "audio": audio or "Dublado",
                             "sinopse": sinopse or "Sem sinopse cadastrada.",
                             "img": poster or "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=300",
                             "temporadas": {}
@@ -254,7 +335,7 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(str(e).encode("utf-8"))
         else:
-            msg = b"Miniflix Bot Online!"
+            msg = b"Miniflix API Online!"
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
             self.send_header("Content-Length", str(len(msg)))
@@ -270,10 +351,21 @@ def iniciar_servidor_web():
     logging.info(f"--> [API + RENDER] Servidor HTTP nativo rodando na porta {porta}")
     httpd.serve_forever()
 
-# --- INGESTÃO COM TMDB ---
+# --- INGESTÃO AUTOMÁTICA COM DETECÇÃO DE ÁUDIO E METADADOS ---
 def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int):
     if not texto_completo.startswith("#"):
         return False
+
+    texto_lower = texto_completo.lower()
+    
+    # Detecção de Áudio
+    audio = "Dublado"
+    if "#legendado" in texto_lower or "#leg" in texto_lower or "[leg]" in texto_lower:
+        audio = "Legendado"
+    elif "#dublado" in texto_lower or "#dub" in texto_lower or "[dub]" in texto_lower:
+        audio = "Dublado"
+    elif "#dual" in texto_lower or "[dual]" in texto_lower:
+        audio = "Dublado / Legendado"
 
     primeira_linha = texto_completo.split("\n")[0].strip()
     match_ep = re.match(r"^#(serie|anime|cartoon)\s+(.+?)\s+[sS](\d+)[eE](\d+)", primeira_linha, re.IGNORECASE)
@@ -283,21 +375,30 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
     c = conn.cursor()
 
     if match_ep:
-        cat, nome = match_ep.group(1).lower(), match_ep.group(2).strip().title()
+        cat, nome_bruto = match_ep.group(1).lower(), match_ep.group(2).strip()
         temp, ep = int(match_ep.group(3)), int(match_ep.group(4))
+        
+        # Limpa tags da linha
+        nome = re.sub(r"#\w+", "", nome_bruto).strip().title()
         nome_busca = normalizar(nome)
 
-        poster_url, sinopse, ano = buscar_metadados_tmdb(nome, cat)
+        poster_url, sinopse, ano, nota, duracao, generos, trailer_key = buscar_metadados_tmdb(nome, cat)
+        generos_json = json.dumps(generos, ensure_ascii=False) if generos else "[]"
 
         c.execute("""
-            INSERT INTO titulos (categoria, nome, nome_busca, poster_url, sinopse, ano)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO titulos (categoria, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos, trailer_key, audio)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (nome) DO UPDATE SET 
                 categoria = EXCLUDED.categoria,
                 poster_url = COALESCE(titulos.poster_url, EXCLUDED.poster_url),
                 sinopse = COALESCE(titulos.sinopse, EXCLUDED.sinopse),
-                ano = COALESCE(titulos.ano, EXCLUDED.ano);
-        """, (cat, nome, nome_busca, poster_url, sinopse, ano))
+                ano = COALESCE(titulos.ano, EXCLUDED.ano),
+                nota = COALESCE(EXCLUDED.nota, titulos.nota),
+                duracao = COALESCE(EXCLUDED.duracao, titulos.duracao),
+                generos = COALESCE(EXCLUDED.generos, titulos.generos),
+                trailer_key = COALESCE(EXCLUDED.trailer_key, titulos.trailer_key),
+                audio = EXCLUDED.audio;
+        """, (cat, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos_json, trailer_key, audio))
 
         c.execute("SELECT id FROM titulos WHERE nome = %s;", (nome,))
         titulo_id = c.fetchone()[0]
@@ -313,25 +414,32 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
         conn.commit()
         c.close()
         conn.close()
-        print(f"--> [TMDB + SUPABASE] {nome} (S{temp:02d}E{ep:02d}) registrado.")
+        print(f"--> [TMDB + SUPABASE] {nome} (S{temp:02d}E{ep:02d}) [{audio}] registrado.")
         return True
 
     elif match_filme:
         cat = "filme"
-        nome = match_filme.group(1).strip().title()
+        nome_bruto = match_filme.group(1).strip()
+        nome = re.sub(r"#\w+", "", nome_bruto).strip().title()
         nome_busca = normalizar(nome)
 
-        poster_url, sinopse, ano = buscar_metadados_tmdb(nome, cat)
+        poster_url, sinopse, ano, nota, duracao, generos, trailer_key = buscar_metadados_tmdb(nome, cat)
+        generos_json = json.dumps(generos, ensure_ascii=False) if generos else "[]"
 
         c.execute("""
-            INSERT INTO titulos (categoria, nome, nome_busca, poster_url, sinopse, ano)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO titulos (categoria, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos, trailer_key, audio)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (nome) DO UPDATE SET 
                 categoria = EXCLUDED.categoria,
                 poster_url = COALESCE(titulos.poster_url, EXCLUDED.poster_url),
                 sinopse = COALESCE(titulos.sinopse, EXCLUDED.sinopse),
-                ano = COALESCE(titulos.ano, EXCLUDED.ano);
-        """, (cat, nome, nome_busca, poster_url, sinopse, ano))
+                ano = COALESCE(titulos.ano, EXCLUDED.ano),
+                nota = COALESCE(EXCLUDED.nota, titulos.nota),
+                duracao = COALESCE(EXCLUDED.duracao, titulos.duracao),
+                generos = COALESCE(EXCLUDED.generos, titulos.generos),
+                trailer_key = COALESCE(EXCLUDED.trailer_key, titulos.trailer_key),
+                audio = EXCLUDED.audio;
+        """, (cat, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos_json, trailer_key, audio))
 
         c.execute("SELECT id FROM titulos WHERE nome = %s;", (nome,))
         titulo_id = c.fetchone()[0]
@@ -347,7 +455,7 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
         conn.commit()
         c.close()
         conn.close()
-        print(f"--> [TMDB + SUPABASE] Filme {nome} ({ano}) registrado.")
+        print(f"--> [TMDB + SUPABASE] Filme {nome} ({ano}) [{audio}] registrado.")
         return True
 
     c.close()
@@ -364,7 +472,7 @@ async def processar_edicao(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if msg:
         salvar_ou_atualizar_midia((msg.caption or msg.text or "").strip(), msg.chat_id, msg.message_id)
 
-# --- MENUS E COMANDOS ---
+# --- MENUS E COMANDOS NATIVOS ---
 def menu_principal():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🎬 Filmes", callback_data="cat:filme:0"),
@@ -433,48 +541,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         resize_keyboard=True
     )
 
-    await update.message.reply_markdown(
-        "🍿 **Miniflix Bot**\n\nAbra o **Catálogo Visual** abaixo ou navegue pelas categorias:",
-        reply_markup=teclado_app
+    msg_boas_vindas = (
+        "🍿 **Bem-vindo ao Miniflix!**\n\n"
+        "Assista a filmes, séries, animes e desenhos com reprodução instantânea.\n\n"
+        "• 🚀 **Toque em '🍿 Abrir Miniflix'** abaixo para navegar pelo catálogo com capas em HD, trailers e gêneros.\n"
+        "• 🔍 Ou **digite o nome** de qualquer título aqui no chat para buscar."
     )
+
+    await update.message.reply_markdown(msg_boas_vindas, reply_markup=teclado_app)
     await update.message.reply_markdown("Categorias disponíveis:", reply_markup=menu_principal())
 
-async def receber_dados_webapp(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    dados_raw = update.effective_message.web_app_data.data
-    try:
-        dados = json.loads(dados_raw)
-        titulo_id = int(dados.get("id"))
-        tipo = dados.get("tipo")
-        temp = dados.get("temporada")
-        ep = dados.get("episodio")
-    except (ValueError, TypeError, json.JSONDecodeError):
-        return
-
-    conn = get_db_connection()
-    c = conn.cursor()
-
-    if tipo == "filme" or temp is None or ep is None:
-        c.execute("SELECT chat_id, message_id FROM arquivos WHERE titulo_id = %s LIMIT 1;", (titulo_id,))
-    else:
-        c.execute(
-            "SELECT chat_id, message_id FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s LIMIT 1;",
-            (titulo_id, int(temp), int(ep))
-        )
-    
-    arq = c.fetchone()
-    c.close()
-    conn.close()
-
-    if arq:
-        await context.bot.copy_message(
-            chat_id=update.effective_chat.id,
-            from_chat_id=arq[0],
-            message_id=arq[1]
-        )
-    else:
-        await update.message.reply_text("Arquivo não encontrado no catálogo do Supabase.")
-
-# --- NAVEGAÇÃO DOS BOTÕES NATIVOS ---
 async def tratar_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -586,7 +662,6 @@ async def tratar_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c.close()
     conn.close()
 
-# --- BUSCA TEXTUAL & STATS ---
 async def buscar_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     termo = normalizar(update.message.text)
     if len(termo) < 2:
@@ -606,15 +681,7 @@ async def buscar_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     botoes = [[InlineKeyboardButton(f"[{r[2].upper()}] {r[1]}", callback_data=f"tit:{r[0]}")] for r in resultados]
     await update.message.reply_markdown("🔍 **Resultados encontrados:**", reply_markup=InlineKeyboardMarkup(botoes))
 
-async def cmd_meuid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_markdown(f"Seu ID do Telegram é: `{update.effective_user.id}`")
-
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if ADMIN_ID != 0 and user_id != ADMIN_ID:
-        await update.message.reply_text("Acesso não autorizado.")
-        return
-
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM usuarios;")
@@ -629,9 +696,9 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
     texto = (
-        "📊 **Estatísticas do Miniflix (TMDB + Supabase)**\n\n"
-        f"👥 **Total de Usuários:** `{total_users}`\n"
-        f"📦 **Total de Arquivos:** `{total_arquivos}`\n\n"
+        "📊 **Estatísticas do Miniflix**\n\n"
+        f"👥 **Usuários:** `{total_users}`\n"
+        f"📦 **Arquivos:** `{total_arquivos}`\n\n"
         f"• 🎬 Filmes: `{por_cat.get('filme', 0)}`\n"
         f"• 📺 Séries: `{por_cat.get('serie', 0)}`\n"
         f"• ⛩️ Animes: `{por_cat.get('anime', 0)}`\n"
@@ -639,17 +706,12 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_markdown(texto)
 
-# --- INICIALIZAÇÃO ASSÍNCRONA ---
+# --- INICIALIZAÇÃO ---
 async def main():
     init_db()
     threading.Thread(target=iniciar_servidor_web, daemon=True).start()
 
-    request_config = HTTPXRequest(
-        connect_timeout=60.0,
-        read_timeout=60.0,
-        write_timeout=60.0,
-        pool_timeout=60.0
-    )
+    request_config = HTTPXRequest(connect_timeout=60.0, read_timeout=60.0)
 
     app = (
         ApplicationBuilder()
@@ -664,17 +726,15 @@ async def main():
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stats", cmd_stats))
-    app.add_handler(CommandHandler("meuid", cmd_meuid))
 
     app.add_handler(CallbackQueryHandler(tratar_callbacks))
-    app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, receber_dados_webapp))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, buscar_texto))
 
     async with app:
         await app.initialize()
         await app.start()
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-        logging.info("--> [BOT MINIFLIX] Rodando e pronto para receber mensagens!")
+        logging.info("--> [BOT MINIFLIX] Rodando com sucesso!")
         
         stop_event = asyncio.Event()
         await stop_event.wait()
@@ -686,4 +746,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        logging.info("Bot finalizado pelo usuário.")
+        logging.info("Bot finalizado.")
