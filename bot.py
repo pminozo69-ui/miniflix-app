@@ -62,6 +62,7 @@ def buscar_metadados_tmdb(nome_titulo: str, categoria: str):
     }
 
     try:
+        # 1. Busca inicial para obter o ID oficial do título no TMDB
         resp = requests.get(url_busca, params=params, timeout=10)
         dados = resp.json()
         resultados = dados.get("results", [])
@@ -72,27 +73,30 @@ def buscar_metadados_tmdb(nome_titulo: str, categoria: str):
         item = resultados[0]
         tmdb_id = item.get("id")
 
-        # Busca detalhes aprofundados com vídeos/trailers
-        url_det = f"https://api.themoviedb.org/3/{tipo_busca}/{tmdb_id}"
-        params_det = {
+        # 2. Consulta aprofundada com append_to_response=videos
+        url_detalhes = f"https://api.themoviedb.org/3/{tipo_busca}/{tmdb_id}"
+        params_detalhes = {
             "api_key": TMDB_API_KEY,
             "language": "pt-BR",
             "append_to_response": "videos"
         }
-        resp_det = requests.get(url_det, params=params_det, timeout=10)
+        resp_det = requests.get(url_detalhes, params=params_detalhes, timeout=10)
         detalhes = resp_det.json() if resp_det.status_code == 200 else item
 
+        # Capa e Sinopse
         poster_path = detalhes.get("poster_path") or item.get("poster_path")
         poster_url = f"{TMDB_IMG_BASE}{poster_path}" if poster_path else "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=300"
         sinopse = detalhes.get("overview") or item.get("overview") or "Sem sinopse cadastrada."
         
+        # Ano
         data_lanc = detalhes.get("release_date") or detalhes.get("first_air_date") or ""
         ano = int(data_lanc.split("-")[0]) if "-" in data_lanc else None
 
-        # Nota
-        nota = round(float(detalhes.get("vote_average", 0.0)), 1)
+        # ⭐ NOTA (Arredondada com 1 casa decimal, ex: 8.4)
+        nota_bruta = detalhes.get("vote_average", 0.0)
+        nota = round(float(nota_bruta), 1) if nota_bruta else None
 
-        # Duração
+        # ⏱️ DURAÇÃO (Convertida para "1h 45m" ou "~45m/ep")
         duracao = ""
         if tipo_busca == "movie":
             runtime = detalhes.get("runtime")
@@ -107,10 +111,10 @@ def buscar_metadados_tmdb(nome_titulo: str, categoria: str):
             else:
                 duracao = "Série"
 
-        # Gêneros
+        # 🏷️ GÊNEROS (Extrai a lista de nomes: ["Ação", "Aventura"])
         generos = [g.get("name") for g in detalhes.get("genres", []) if g.get("name")]
 
-        # Trailer (YouTube)
+        # 🎬 TRAILER (Captura a chave do vídeo oficial no YouTube)
         trailer_key = None
         videos = detalhes.get("videos", {}).get("results", [])
         for v in videos:
@@ -118,7 +122,7 @@ def buscar_metadados_tmdb(nome_titulo: str, categoria: str):
                 trailer_key = v.get("key")
                 break
 
-        # Fallback de trailer em inglês caso não haja em pt-BR
+        # Fallback: Se não achar trailer em português, busca o trailer original em inglês
         if not trailer_key and tmdb_id:
             try:
                 resp_vid_en = requests.get(
@@ -135,6 +139,7 @@ def buscar_metadados_tmdb(nome_titulo: str, categoria: str):
                 pass
 
         return poster_url, sinopse, ano, nota, duracao, generos, trailer_key
+
     except Exception as e:
         logging.error(f"Erro ao consultar TMDB detalhado: {e}")
         return None, None, None, None, None, [], None
