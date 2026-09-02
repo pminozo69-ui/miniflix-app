@@ -363,7 +363,7 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
 
     texto_lower = texto_completo.lower()
     
-    # Detecção de Áudio
+    # 1. Identifica se é Dublado ou Legendado pela hashtag
     audio = "Dublado"
     if "#legendado" in texto_lower or "#leg" in texto_lower or "[leg]" in texto_lower:
         audio = "Legendado"
@@ -379,25 +379,26 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
     conn = get_db_connection()
     c = conn.cursor()
 
+    # --- SE FOR SÉRIE / ANIME / CARTOON ---
     if match_ep:
         cat, nome_bruto = match_ep.group(1).lower(), match_ep.group(2).strip()
         temp, ep = int(match_ep.group(3)), int(match_ep.group(4))
         
-        # Limpa tags da linha
         nome = re.sub(r"#\w+", "", nome_bruto).strip().title()
         nome_busca = normalizar(nome)
 
         poster_url, sinopse, ano, nota, duracao, generos, trailer_key = buscar_metadados_tmdb(nome, cat)
         generos_json = json.dumps(generos, ensure_ascii=False) if generos else "[]"
 
+        # Salva o título (ou atualiza se já existir)
         c.execute("""
             INSERT INTO titulos (categoria, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos, trailer_key, audio)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (nome) DO UPDATE SET 
                 categoria = EXCLUDED.categoria,
-                poster_url = COALESCE(titulos.poster_url, EXCLUDED.poster_url),
-                sinopse = COALESCE(titulos.sinopse, EXCLUDED.sinopse),
-                ano = COALESCE(titulos.ano, EXCLUDED.ano),
+                poster_url = COALESCE(EXCLUDED.poster_url, titulos.poster_url),
+                sinopse = COALESCE(EXCLUDED.sinopse, titulos.sinopse),
+                ano = COALESCE(EXCLUDED.ano, titulos.ano),
                 nota = COALESCE(EXCLUDED.nota, titulos.nota),
                 duracao = COALESCE(EXCLUDED.duracao, titulos.duracao),
                 generos = COALESCE(EXCLUDED.generos, titulos.generos),
@@ -408,6 +409,7 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
         c.execute("SELECT id FROM titulos WHERE nome = %s;", (nome,))
         titulo_id = c.fetchone()[0]
 
+        # Salva o arquivo/episódio
         c.execute("""
             INSERT INTO arquivos (titulo_id, temporada, episodio, chat_id, message_id)
             VALUES (%s, %s, %s, %s, %s)
@@ -416,12 +418,14 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
                 temporada = EXCLUDED.temporada,
                 episodio = EXCLUDED.episodio;
         """, (titulo_id, temp, ep, chat_id, message_id))
+        
         conn.commit()
         c.close()
         conn.close()
-        print(f"--> [TMDB + SUPABASE] {nome} (S{temp:02d}E{ep:02d}) [{audio}] registrado.")
+        print(f"--> [TMDB + SUPABASE] {nome} (S{temp:02d}E{ep:02d}) [{audio}] salvo/atualizado.")
         return True
 
+    # --- SE FOR FILME ---
     elif match_filme:
         cat = "filme"
         nome_bruto = match_filme.group(1).strip()
@@ -431,14 +435,15 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
         poster_url, sinopse, ano, nota, duracao, generos, trailer_key = buscar_metadados_tmdb(nome, cat)
         generos_json = json.dumps(generos, ensure_ascii=False) if generos else "[]"
 
+        # Salva o filme (ou atualiza se já existir)
         c.execute("""
             INSERT INTO titulos (categoria, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos, trailer_key, audio)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (nome) DO UPDATE SET 
                 categoria = EXCLUDED.categoria,
-                poster_url = COALESCE(titulos.poster_url, EXCLUDED.poster_url),
-                sinopse = COALESCE(titulos.sinopse, EXCLUDED.sinopse),
-                ano = COALESCE(titulos.ano, EXCLUDED.ano),
+                poster_url = COALESCE(EXCLUDED.poster_url, titulos.poster_url),
+                sinopse = COALESCE(EXCLUDED.sinopse, titulos.sinopse),
+                ano = COALESCE(EXCLUDED.ano, titulos.ano),
                 nota = COALESCE(EXCLUDED.nota, titulos.nota),
                 duracao = COALESCE(EXCLUDED.duracao, titulos.duracao),
                 generos = COALESCE(EXCLUDED.generos, titulos.generos),
@@ -449,6 +454,7 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
         c.execute("SELECT id FROM titulos WHERE nome = %s;", (nome,))
         titulo_id = c.fetchone()[0]
 
+        # Salva o arquivo do filme
         c.execute("""
             INSERT INTO arquivos (titulo_id, temporada, episodio, chat_id, message_id)
             VALUES (%s, 0, 0, %s, %s)
@@ -457,15 +463,17 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
                 temporada = 0,
                 episodio = 0;
         """, (titulo_id, chat_id, message_id))
+        
         conn.commit()
         c.close()
         conn.close()
-        print(f"--> [TMDB + SUPABASE] Filme {nome} ({ano}) [{audio}] registrado.")
+        print(f"--> [TMDB + SUPABASE] Filme {nome} ({ano}) [{audio}] salvo/atualizado.")
         return True
 
     c.close()
     conn.close()
     return False
+    
 async def processar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # update.effective_message captura tanto posts novos quanto mensagens editadas
     msg = update.effective_message
