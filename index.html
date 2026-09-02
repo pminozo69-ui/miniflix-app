@@ -2,129 +2,245 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Miniflix</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     :root {
-      --bg-color: #141414;
-      --card-bg: #1f1f1f;
-      --accent: #e50914;
+      --bg: #0d0f14;
+      --card-bg: #161a23;
+      --card-hover: #202634;
+      --primary: #e50914;
+      --primary-hover: #f40612;
       --text: #ffffff;
-      --text-muted: #aaaaaa;
-      --border: #2e2e2e;
+      --text-muted: #8e95a5;
+      --gold: #ffc107;
+      --badge-dub: #2563eb;
+      --badge-leg: #059669;
+      --border: rgba(255, 255, 255, 0.08);
     }
 
     * {
       box-sizing: border-box;
       margin: 0;
       padding: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       -webkit-tap-highlight-color: transparent;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
 
     body {
-      background-color: var(--bg-color);
+      background-color: var(--bg);
       color: var(--text);
-      padding: 16px;
+      min-height: 100vh;
       padding-bottom: 40px;
     }
 
-    /* Cabeçalho e Busca */
+    /* HEADER FIXO */
     header {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      margin-bottom: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(13, 15, 20, 0.95);
+      backdrop-filter: blur(12px);
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
     }
 
     .brand {
-      font-size: 1.6rem;
-      font-weight: 900;
-      color: var(--accent);
-      letter-spacing: 1.5px;
-      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .brand h1 {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--primary);
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .search-box {
+      position: relative;
+      margin-bottom: 10px;
     }
 
     .search-box input {
       width: 100%;
-      background: #222;
+      background: var(--card-bg);
       border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px 14px;
+      padding: 10px 14px 10px 36px;
+      border-radius: 10px;
       color: #fff;
-      font-size: 0.9rem;
+      font-size: 14px;
       outline: none;
       transition: border-color 0.2s;
     }
 
     .search-box input:focus {
-      border-color: var(--accent);
+      border-color: var(--primary);
     }
 
-    /* Abas de Categoria */
-    .tabs {
+    .search-box svg {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 16px;
+      height: 16px;
+      fill: var(--text-muted);
+    }
+
+    /* NAVEGAÇÃO DE CATEGORIAS */
+    .tabs-nav {
       display: flex;
       gap: 8px;
       overflow-x: auto;
-      padding-bottom: 6px;
       scrollbar-width: none;
+      padding-bottom: 4px;
     }
+    .tabs-nav::-webkit-scrollbar { display: none; }
 
-    .tabs::-webkit-scrollbar {
-      display: none;
-    }
-
-    .tab {
-      background: #242424;
+    .tab-btn {
+      background: var(--card-bg);
       border: 1px solid var(--border);
       color: var(--text-muted);
-      padding: 7px 16px;
+      padding: 6px 14px;
       border-radius: 20px;
-      font-size: 0.8rem;
+      font-size: 13px;
       font-weight: 600;
-      cursor: pointer;
       white-space: nowrap;
+      cursor: pointer;
       transition: all 0.2s;
     }
 
-    .tab.active {
-      background: var(--accent);
+    .tab-btn.active {
+      background: var(--primary);
       color: #fff;
-      border-color: var(--accent);
+      border-color: var(--primary);
     }
 
-    /* Grade de Mídias */
+    /* CHIPS DE GÊNEROS */
+    .chips-container {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      padding: 10px 16px 4px 16px;
+    }
+    .chips-container::-webkit-scrollbar { display: none; }
+
+    .chip {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    .chip.active {
+      background: rgba(229, 9, 20, 0.15);
+      border-color: var(--primary);
+      color: #ff6b6b;
+    }
+
+    /* SEÇÃO CONTINUAR ASSISTINDO */
+    .section-title {
+      font-size: 15px;
+      font-weight: 700;
+      padding: 16px 16px 8px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .history-row {
+      display: flex;
+      gap: 12px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      padding: 0 16px 12px;
+    }
+    .history-row::-webkit-scrollbar { display: none; }
+
+    .history-card {
+      min-width: 140px;
+      max-width: 140px;
+      background: var(--card-bg);
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .history-card img {
+      width: 100%;
+      height: 80px;
+      object-fit: cover;
+    }
+
+    .history-card-body {
+      padding: 8px;
+    }
+
+    .history-card-title {
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .history-card-sub {
+      font-size: 10px;
+      color: var(--primary);
+      margin-top: 2px;
+      font-weight: 600;
+    }
+
+    /* GRADE PRINCIPAL */
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
-      gap: 12px;
-      margin-top: 10px;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      padding: 12px 16px;
+    }
+
+    @media (max-width: 360px) {
+      .grid { grid-template-columns: repeat(2, 1fr); }
     }
 
     .card {
       background: var(--card-bg);
-      border-radius: 8px;
+      border-radius: 10px;
       overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      cursor: pointer;
       border: 1px solid var(--border);
-      transition: transform 0.15s ease;
+      position: relative;
+      cursor: pointer;
+      transition: transform 0.2s;
     }
 
     .card:active {
       transform: scale(0.97);
     }
 
-    .poster-container {
+    .poster-box {
       position: relative;
       width: 100%;
-      padding-top: 145%;
-      background: #222;
+      padding-top: 150%;
+      background: #111;
     }
 
-    .poster {
+    .poster-box img {
       position: absolute;
       top: 0;
       left: 0;
@@ -133,72 +249,107 @@
       object-fit: cover;
     }
 
-    .badge {
+    /* BADGES */
+    .badge-rating {
       position: absolute;
       top: 6px;
       left: 6px;
       background: rgba(0, 0, 0, 0.75);
       backdrop-filter: blur(4px);
-      padding: 2px 6px;
+      color: var(--gold);
+      font-size: 10px;
+      font-weight: 800;
+      padding: 2px 5px;
       border-radius: 4px;
-      font-size: 0.65rem;
-      font-weight: bold;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      border: 1px solid rgba(255, 193, 7, 0.3);
+    }
+
+    .badge-audio {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      font-size: 9px;
+      font-weight: 800;
+      padding: 2px 4px;
+      border-radius: 4px;
       text-transform: uppercase;
       color: #fff;
+    }
+    .badge-audio.dub { background: var(--badge-dub); }
+    .badge-audio.leg { background: var(--badge-leg); }
+
+    .card-fav-btn {
+      position: absolute;
+      bottom: 6px;
+      right: 6px;
+      background: rgba(0, 0, 0, 0.65);
+      border-radius: 50%;
+      width: 26px;
+      height: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
     }
 
     .card-info {
       padding: 8px;
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
     }
 
     .card-title {
-      font-size: 0.82rem;
-      font-weight: 600;
+      font-size: 12px;
+      font-weight: 700;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      color: #fff;
     }
 
     .card-meta {
-      font-size: 0.7rem;
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
       color: var(--text-muted);
+      margin-top: 3px;
     }
 
-    /* Modal / Bottom Sheet */
+    /* MODAL DE DETALHES */
     .modal-overlay {
       position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
+      inset: 0;
       background: rgba(0, 0, 0, 0.85);
-      backdrop-filter: blur(6px);
+      backdrop-filter: blur(8px);
+      z-index: 200;
       display: none;
       align-items: flex-end;
-      z-index: 100;
     }
 
-    .modal-overlay.open {
+    .modal-overlay.active {
       display: flex;
     }
 
-    .modal-content {
-      background: #1a1a1a;
+    .modal-sheet {
+      background: #141720;
       width: 100%;
-      max-height: 85vh;
-      border-radius: 16px 16px 0 0;
-      padding: 20px;
+      max-height: 88vh;
+      border-radius: 20px 20px 0 0;
       overflow-y: auto;
-      border-top: 1px solid #333;
-      animation: slideUp 0.25s ease-out;
+      border-top: 1px solid var(--border);
+      padding: 20px 16px 36px;
+      position: relative;
     }
 
-    @keyframes slideUp {
-      from { transform: translateY(100%); }
-      to { transform: translateY(0); }
+    .modal-close-bar {
+      width: 40px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 2px;
+      margin: 0 auto 16px;
     }
 
     .modal-header {
@@ -208,363 +359,580 @@
     }
 
     .modal-poster {
-      width: 90px;
-      height: 130px;
-      border-radius: 6px;
+      width: 95px;
+      height: 140px;
+      border-radius: 8px;
       object-fit: cover;
+      flex-shrink: 0;
     }
 
-    .modal-info {
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      gap: 6px;
+    .modal-header-info {
+      flex: 1;
     }
 
     .modal-title {
-      font-size: 1.1rem;
-      font-weight: bold;
+      font-size: 18px;
+      font-weight: 800;
+      line-height: 1.2;
+      margin-bottom: 6px;
     }
 
-    .modal-synopsis {
-      font-size: 0.8rem;
+    .modal-meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      align-items: center;
+    }
+
+    .modal-rating {
+      color: var(--gold);
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .modal-genres {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 4px;
+    }
+
+    .genre-tag {
+      background: rgba(255, 255, 255, 0.08);
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 10px;
       color: var(--text-muted);
-      line-height: 1.4;
-      margin-bottom: 16px;
     }
 
-    /* Seletores de Séries */
-    .season-selector {
-      margin-bottom: 14px;
-    }
-
-    .season-selector select {
-      width: 100%;
-      background: #282828;
-      color: #fff;
-      padding: 10px;
-      border-radius: 6px;
-      border: 1px solid #444;
-      font-size: 0.85rem;
-      outline: none;
-    }
-
-    .episodes-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(65px, 1fr));
+    .modal-actions {
+      display: flex;
       gap: 8px;
       margin-bottom: 16px;
     }
 
-    .ep-btn {
-      background: #2a2a2a;
-      border: 1px solid #3a3a3a;
-      color: #fff;
-      padding: 10px 4px;
-      border-radius: 6px;
-      font-size: 0.8rem;
-      font-weight: 600;
-      text-align: center;
-      cursor: pointer;
-    }
-
-    .ep-btn:active {
-      background: var(--accent);
-      border-color: var(--accent);
-    }
-
-    .play-btn {
-      background: var(--accent);
+    .btn-main {
+      flex: 1;
+      background: var(--primary);
       color: #fff;
       border: none;
-      width: 100%;
       padding: 12px;
-      border-radius: 8px;
-      font-size: 0.9rem;
-      font-weight: bold;
-      cursor: pointer;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 700;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 8px;
-    }
-
-    .play-btn:active {
-      opacity: 0.85;
-    }
-
-    .close-btn {
-      background: #333;
-      color: #fff;
-      border: none;
-      width: 100%;
-      padding: 10px;
-      border-radius: 8px;
-      font-size: 0.85rem;
-      margin-top: 8px;
       cursor: pointer;
     }
 
-    .status-msg {
+    .btn-trailer {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid var(--border);
+      color: #fff;
+      padding: 12px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-fav {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid var(--border);
+      color: #fff;
+      padding: 12px 14px;
+      border-radius: 10px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    .modal-synopsis {
+      font-size: 13px;
+      color: #bbb;
+      line-height: 1.5;
+      margin-bottom: 20px;
+    }
+
+    /* EPISÓDIOS */
+    .episodes-sec h3 {
+      font-size: 14px;
+      margin-bottom: 10px;
+      font-weight: 700;
+    }
+
+    .ep-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .ep-btn {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      color: #fff;
+      padding: 10px 0;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .ep-btn:active { background: var(--primary); }
+
+    /* MODAL DE TRAILER */
+    .trailer-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.95);
+      z-index: 300;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .trailer-overlay.active { display: flex; }
+
+    .trailer-box {
+      width: 100%;
+      max-width: 600px;
+      aspect-ratio: 16/9;
+      position: relative;
+    }
+
+    .trailer-box iframe {
+      width: 100%;
+      height: 100%;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+    }
+
+    .btn-close-trailer {
+      margin-top: 16px;
+      background: rgba(255, 255, 255, 0.15);
+      border: none;
+      color: #fff;
+      padding: 8px 20px;
+      border-radius: 20px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .empty-state {
+      grid-column: 1 / -1;
       text-align: center;
+      padding: 40px 16px;
       color: var(--text-muted);
-      margin-top: 40px;
-      font-size: 0.9rem;
-      grid-column: 1/-1;
+      font-size: 14px;
     }
   </style>
 </head>
 <body>
 
+  <!-- HEADER -->
   <header>
-    <div class="brand">MINIFLIX</div>
-    <div class="search-box">
-      <input type="text" id="searchInput" placeholder="Buscar filmes, séries, animes..." oninput="executarBusca()" />
+    <div class="brand">
+      <h1>🍿 Miniflix</h1>
+      <div id="statusBadge" style="font-size: 11px; color: var(--text-muted);">Carregando...</div>
     </div>
-    <div class="tabs">
-      <button class="tab active" onclick="filtrarCategoria('todos')">Todos</button>
-      <button class="tab" onclick="filtrarCategoria('filme')">Filmes</button>
-      <button class="tab" onclick="filtrarCategoria('serie')">Séries</button>
-      <button class="tab" onclick="filtrarCategoria('anime')">Animes</button>
-      <button class="tab" onclick="filtrarCategoria('cartoon')">Cartoons</button>
+
+    <div class="search-box">
+      <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+      <input type="text" id="searchInput" placeholder="Buscar filmes, séries, animes..." />
+    </div>
+
+    <!-- TABS -->
+    <div class="tabs-nav">
+      <button class="tab-btn active" onclick="filtrarCategoria('todos')">🔥 Todos</button>
+      <button class="tab-btn" onclick="filtrarCategoria('filme')">🎬 Filmes</button>
+      <button class="tab-btn" onclick="filtrarCategoria('serie')">📺 Séries</button>
+      <button class="tab-btn" onclick="filtrarCategoria('anime')">⛩️ Animes</button>
+      <button class="tab-btn" onclick="filtrarCategoria('cartoon')">🎨 Cartoons</button>
+      <button class="tab-btn" onclick="filtrarCategoria('favoritos')">❤️ Minha Lista</button>
     </div>
   </header>
 
-  <div class="grid" id="catalogoGrid">
-    <div class="status-msg">Carregando catálogo do Miniflix...</div>
+  <!-- CHIPS DE GÊNERO -->
+  <div class="chips-container" id="genresChips">
+    <!-- Gerado via JS -->
   </div>
 
-  <!-- Modal de Detalhes -->
-  <div class="modal-overlay" id="modalOverlay" onclick="fecharModalExterno(event)">
-    <div class="modal-content">
+  <!-- CONTINUAR ASSISTINDO -->
+  <div id="historySection" style="display: none;">
+    <div class="section-title">⏱️ Continuar Assistindo</div>
+    <div class="history-row" id="historyRow"></div>
+  </div>
+
+  <!-- GRADE DE TÍTULOS -->
+  <div class="grid" id="catalogGrid">
+    <div class="empty-state">Sincronizando catálogo com o TMDB...</div>
+  </div>
+
+  <!-- MODAL DE DETALHES -->
+  <div class="modal-overlay" id="modalOverlay" onclick="fecharModal(event)">
+    <div class="modal-sheet" onclick="event.stopPropagation()">
+      <div class="modal-close-bar"></div>
+      
       <div class="modal-header">
-        <img src="" id="modalImg" class="modal-poster" alt="" />
-        <div class="modal-info">
-          <span class="badge" id="modalBadge"></span>
-          <div class="modal-title" id="modalTitulo"></div>
-          <div class="card-meta" id="modalMeta"></div>
+        <img id="modalPoster" class="modal-poster" src="" alt="Poster" />
+        <div class="modal-header-info">
+          <div class="modal-title" id="modalTitle">Nome do Filme</div>
+          <div class="modal-meta-row">
+            <span class="modal-rating" id="modalRating">⭐ 8.5</span>
+            <span id="modalYear">2024</span>
+            <span id="modalDuration">⏱️ 1h 45m</span>
+            <span id="modalAudio" style="color: #60a5fa;">🔊 Dublado</span>
+          </div>
+          <div class="modal-genres" id="modalGenres"></div>
         </div>
       </div>
 
-      <p class="modal-synopsis" id="modalSinopse"></p>
-
-      <!-- Painel: Filme -->
-      <div id="painelFilme" style="display: none;">
-        <button class="play-btn" onclick="solicitarMidiaFilme()">▶ Assistir Filme</button>
+      <div class="modal-actions">
+        <button class="btn-main" id="modalPlayBtn" onclick="executarPlayPrincipal()">
+          ▶️ Assistir Agora
+        </button>
+        <button class="btn-trailer" id="modalTrailerBtn" onclick="abrirTrailer()">
+          🎬 Trailer
+        </button>
+        <button class="btn-fav" id="modalFavBtn" onclick="toggleFavoritoModal()">
+          🤍
+        </button>
       </div>
 
-      <!-- Painel: Séries / Animes -->
-      <div id="painelSerie" style="display: none;">
-        <div class="season-selector">
-          <select id="selectTemporada" onchange="mudarTemporada()"></select>
-        </div>
-        <div class="episodes-grid" id="gridEpisodios"></div>
+      <div class="modal-synopsis" id="modalSynopsis">
+        Sinopse do filme carregada diretamente da base oficial do TMDB.
       </div>
 
-      <button class="close-btn" onclick="fecharModal()">Fechar</button>
+      <!-- SE FOR SÉRIE: EPISÓDIOS -->
+      <div class="episodes-sec" id="modalEpisodesSec" style="display: none;">
+        <h3>📺 Selecione o Episódio:</h3>
+        <div id="episodesContainer"></div>
+      </div>
     </div>
   </div>
 
+  <!-- MODAL DE TRAILER YOUTUBE -->
+  <div class="trailer-overlay" id="trailerOverlay">
+    <div class="trailer-box">
+      <iframe id="trailerFrame" src="" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+    </div>
+    <button class="btn-close-trailer" onclick="fecharTrailer()">✕ Fechar Trailer</button>
+  </div>
+
   <script>
+    // --- CONFIGURAÇÕES ---
+    const API_BASE_URL = "https://miniflix-app.onrender.com"; // Substitua pela sua URL do Render
+    const BOT_USERNAME = "miniflix_drive_bot";
+
     const tg = window.Telegram?.WebApp;
     if (tg) {
       tg.ready();
       tg.expand();
     }
 
-    const BOT_USERNAME = "miniflix_drive_bot";
-
-    // URL LOCAL: Aponta para o bot.py rodando no seu computador
-    // (Quando for para o Render, basta trocar por: "https://seu-app.onrender.com")
-    const API_BASE_URL = "https://miniflix-app.onrender.com"; // sem barra no final
-
-    let acervo = [];
-    let categoriaAtual = 'todos';
+    let catalogoCompleto = [];
+    let categoriaAtiva = 'todos';
+    let generoAtivo = 'todos';
     let itemSelecionado = null;
 
-    // Busca o catálogo real gerado pelo bot.py no Supabase
-    async function carregarCatalogo() {
-      try {
-        const res = await fetch(`${API_BASE_URL}/api/catalogo`);
-        if (res.ok) {
-          acervo = await res.json();
-          renderizarGrade(acervo);
-          return;
-        }
-      } catch (err) {
-        console.warn("Servidor local desligado ou inacessível:", err);
-      }
-
-      // Exibição amigável caso o bot local não esteja aberto
-      document.getElementById('catalogoGrid').innerHTML = `
-        <div class="status-msg">
-          <p style="color: #fff; font-weight: bold; margin-bottom: 6px;">Servidor Local Offline</p>
-          <p style="font-size: 0.8rem; color: #888;">Inicie o seu <code>bot.py</code> no terminal e recarregue esta página (F5) para ver os títulos e capas reais do TMDB.</p>
-        </div>
-      `;
+    // --- FAVORITOS E HISTÓRICO LOCALSTORAGE ---
+    function getFavoritos() {
+      return JSON.parse(localStorage.getItem('miniflix_favs') || '[]');
     }
 
-    function renderizarGrade(lista) {
-      const grid = document.getElementById('catalogoGrid');
-      grid.innerHTML = '';
+    function toggleFavorito(id) {
+      if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+      let favs = getFavoritos();
+      if (favs.includes(id)) {
+        favs = favs.filter(item => item !== id);
+      } else {
+        favs.push(id);
+      }
+      localStorage.setItem('miniflix_favs', JSON.stringify(favs));
+      renderCatalogo();
+      if (itemSelecionado && itemSelecionado.id === id) {
+        atualizarBotaoFavModal(favs.includes(id));
+      }
+    }
 
-      if (!lista || lista.length === 0) {
-        grid.innerHTML = '<p class="status-msg">Nenhum título encontrado no banco de dados.</p>';
+    function getHistorico() {
+      return JSON.parse(localStorage.getItem('miniflix_history') || '[]');
+    }
+
+    function salvarHistorico(item, temp = 0, ep = 0) {
+      let hist = getHistorico().filter(h => h.id !== item.id);
+      hist.unshift({
+        id: item.id,
+        titulo: item.titulo,
+        img: item.img,
+        tipo: item.tipo,
+        temporada: temp,
+        episodio: ep,
+        data: Date.now()
+      });
+      localStorage.setItem('miniflix_history', JSON.stringify(hist.slice(0, 10)));
+      renderHistorico();
+    }
+
+    // --- CARREGAMENTO DO CATÁLOGO ---
+    async function carregarCatalogo() {
+      try {
+        const resp = await fetch(`${API_BASE_URL}/api/catalogo`);
+        if (!resp.ok) throw new Error("Erro na requisição");
+        catalogoCompleto = await resp.json();
+        
+        document.getElementById('statusBadge').innerText = `${catalogoCompleto.length} títulos`;
+        gerarChipsGeneros();
+        renderHistorico();
+        renderCatalogo();
+      } catch (err) {
+        console.error(err);
+        document.getElementById('catalogGrid').innerHTML = `
+          <div class="empty-state">
+            ⚠️ Não foi possível carregar o catálogo.<br>Verifique a conexão ou reinicie o bot.
+          </div>
+        `;
+      }
+    }
+
+    // --- GERAÇÃO DE CHIPS DE GÊNERO ---
+    function gerarChipsGeneros() {
+      const setGeneros = new Set();
+      catalogoCompleto.forEach(item => {
+        (item.generos || []).forEach(g => setGeneros.add(g));
+      });
+
+      const container = document.getElementById('genresChips');
+      if (setGeneros.size === 0) {
+        container.style.display = 'none';
         return;
       }
 
-      lista.forEach(item => {
-        const card = document.createElement('div');
-        card.className = 'card';
-        card.onclick = () => abrirModal(item);
-        card.innerHTML = `
-          <div class="poster-container">
-            <span class="badge">${item.tipo || 'midia'}</span>
-            <img src="${item.img || 'https://via.placeholder.com/300x450'}" class="poster" alt="${item.titulo}" loading="lazy" />
-          </div>
-          <div class="card-info">
-            <div class="card-title">${item.titulo}</div>
-            <div class="card-meta">${item.ano || ''}</div>
-          </div>
-        `;
-        grid.appendChild(card);
+      container.innerHTML = `<div class="chip ${generoAtivo === 'todos' ? 'active' : ''}" onclick="filtrarGenero('todos')">Todos os Gêneros</div>`;
+      Array.from(setGeneros).sort().forEach(gen => {
+        container.innerHTML += `<div class="chip ${generoAtivo === gen ? 'active' : ''}" onclick="filtrarGenero('${gen}')">${gen}</div>`;
       });
     }
 
     function filtrarCategoria(cat) {
-      if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
-      categoriaAtual = cat;
-      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      if (tg?.HapticFeedback) tg.HapticFeedback.selectionChanged();
+      categoriaAtiva = cat;
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
       event.target.classList.add('active');
-      document.getElementById('searchInput').value = '';
-      
-      const filtrados = cat === 'todos' ? acervo : acervo.filter(i => i.tipo === cat);
-      renderizarGrade(filtrados);
+      renderCatalogo();
     }
 
-    function executarBusca() {
+    function filtrarGenero(gen) {
+      if (tg?.HapticFeedback) tg.HapticFeedback.selectionChanged();
+      generoAtivo = gen;
+      document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+      event.target.classList.add('active');
+      renderCatalogo();
+    }
+
+    // --- RENDERIZAR CONTINUAR ASSISTINDO ---
+    function renderHistorico() {
+      const hist = getHistorico();
+      const sec = document.getElementById('historySection');
+      const row = document.getElementById('historyRow');
+
+      if (hist.length === 0) {
+        sec.style.display = 'none';
+        return;
+      }
+
+      sec.style.display = 'block';
+      row.innerHTML = hist.map(h => {
+        const sub = h.tipo === 'filme' ? 'Filme' : `T${h.temporada}:E${h.episodio}`;
+        return `
+          <div class="history-card" onclick="reproduzirHistorico(${h.id}, ${h.temporada}, ${h.episodio})">
+            <img src="${h.img}" alt="${h.titulo}" />
+            <div class="history-card-body">
+              <div class="history-card-title">${h.titulo}</div>
+              <div class="history-card-sub">▶️ Continuar (${sub})</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // --- RENDERIZAR GRADE DE TÍTULOS ---
+    function renderCatalogo() {
       const termo = document.getElementById('searchInput').value.toLowerCase().trim();
-      let filtrados = acervo;
+      const favs = getFavoritos();
+      const grid = document.getElementById('catalogGrid');
 
-      if (categoriaAtual !== 'todos') {
-        filtrados = filtrados.filter(i => i.tipo === categoriaAtual);
+      let lista = catalogoCompleto.filter(item => {
+        // Categoria / Favoritos
+        if (categoriaAtiva === 'favoritos' && !favs.includes(item.id)) return false;
+        if (categoriaAtiva !== 'todos' && categoriaAtiva !== 'favoritos' && item.tipo !== categoriaAtiva) return false;
+        
+        // Gênero
+        if (generoAtivo !== 'todos' && !(item.generos || []).includes(generoAtivo)) return false;
+
+        // Busca
+        if (termo && !item.titulo.toLowerCase().includes(termo)) return false;
+
+        return true;
+      });
+
+      if (lista.length === 0) {
+        grid.innerHTML = `<div class="empty-state">Nenhum título encontrado.</div>`;
+        return;
       }
 
-      if (termo) {
-        filtrados = filtrados.filter(i => (i.titulo || '').toLowerCase().includes(termo));
-      }
+      grid.innerHTML = lista.map(item => {
+        const isFav = favs.includes(item.id);
+        const notaHtml = item.nota ? `<div class="badge-rating">⭐ ${item.nota.toFixed(1)}</div>` : '';
+        const audioClass = item.audio?.toLowerCase().includes('leg') ? 'leg' : 'dub';
+        const audioTag = item.audio ? `<div class="badge-audio ${audioClass}">${audioClass.toUpperCase()}</div>` : '';
 
-      renderizarGrade(filtrados);
+        return `
+          <div class="card" onclick="abrirModal(${item.id})">
+            <div class="poster-box">
+              <img src="${item.img}" alt="${item.titulo}" loading="lazy" />
+              ${notaHtml}
+              ${audioTag}
+              <button class="card-fav-btn" onclick="event.stopPropagation(); toggleFavorito(${item.id})">
+                ${isFav ? '❤️' : '🤍'}
+              </button>
+            </div>
+            <div class="card-info">
+              <div class="card-title">${item.titulo}</div>
+              <div class="card-meta">
+                <span>${item.ano}</span>
+                <span>${item.duracao || item.tipo.toUpperCase()}</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
     }
 
-    function abrirModal(item) {
+    document.getElementById('searchInput').addEventListener('input', renderCatalogo);
+
+    // --- MODAL DE DETALHES ---
+    function abrirModal(id) {
       if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
-      itemSelecionado = item;
+      itemSelecionado = catalogoCompleto.find(i => i.id === id);
+      if (!itemSelecionado) return;
 
-      document.getElementById('modalImg').src = item.img || 'https://via.placeholder.com/300x450';
-      document.getElementById('modalBadge').innerText = item.tipo;
-      document.getElementById('modalTitulo').innerText = item.titulo;
-      document.getElementById('modalMeta').innerText = `${item.ano || ''} • ${(item.tipo || '').toUpperCase()}`;
-      document.getElementById('modalSinopse').innerText = item.sinopse || 'Sem sinopse cadastrada.';
+      const favs = getFavoritos();
+      document.getElementById('modalPoster').src = itemSelecionado.img;
+      document.getElementById('modalTitle').innerText = itemSelecionado.titulo;
+      document.getElementById('modalRating').innerText = itemSelecionado.nota ? `⭐ ${itemSelecionado.nota.toFixed(1)}` : '⭐ N/A';
+      document.getElementById('modalYear').innerText = itemSelecionado.ano || '';
+      document.getElementById('modalDuration').innerText = itemSelecionado.duracao ? `⏱️ ${itemSelecionado.duracao}` : '';
+      document.getElementById('modalAudio').innerText = `🔊 ${itemSelecionado.audio || 'Dublado'}`;
+      document.getElementById('modalSynopsis').innerText = itemSelecionado.sinopse;
 
-      const painelFilme = document.getElementById('painelFilme');
-      const painelSerie = document.getElementById('painelSerie');
+      // Gêneros
+      const genresBox = document.getElementById('modalGenres');
+      genresBox.innerHTML = (itemSelecionado.generos || []).map(g => `<span class="genre-tag">${g}</span>`).join('');
 
-      if (item.tipo === 'filme') {
-        painelFilme.style.display = 'block';
-        painelSerie.style.display = 'none';
+      // Trailer
+      const btnTrailer = document.getElementById('modalTrailerBtn');
+      btnTrailer.style.display = itemSelecionado.trailer_key ? 'flex' : 'none';
+
+      // Favorito
+      atualizarBotaoFavModal(favs.includes(itemSelecionado.id));
+
+      // Botão Play e Episódios
+      const playBtn = document.getElementById('modalPlayBtn');
+      const epSec = document.getElementById('modalEpisodesSec');
+      const epContainer = document.getElementById('episodesContainer');
+
+      if (itemSelecionado.tipo === 'filme') {
+        playBtn.style.display = 'flex';
+        playBtn.innerText = '▶️ Assistir Filme';
+        epSec.style.display = 'none';
       } else {
-        painelFilme.style.display = 'none';
-        painelSerie.style.display = 'block';
+        playBtn.style.display = 'none';
+        epSec.style.display = 'block';
 
-        const selectTemp = document.getElementById('selectTemporada');
-        selectTemp.innerHTML = '';
-        const temps = Object.keys(item.temporadas || {});
-        
-        if (temps.length > 0) {
-          temps.forEach(temp => {
-            const opt = document.createElement('option');
-            opt.value = temp;
-            opt.innerText = `Temporada ${temp}`;
-            selectTemp.appendChild(opt);
+        epContainer.innerHTML = '';
+        const temps = itemSelecionado.temporadas || {};
+        for (const [tNum, eps] of Object.entries(temps)) {
+          epContainer.innerHTML += `<div style="font-size: 12px; font-weight: 700; margin: 8px 0 4px; color: #8e95a5;">Temporada ${tNum}</div>`;
+          let gridHtml = '<div class="ep-grid">';
+          eps.forEach(epNum => {
+            gridHtml += `<button class="ep-btn" onclick="solicitarMidia(${itemSelecionado.id}, ${tNum}, ${epNum})">EP ${epNum.toString().padStart(2, '0')}</button>`;
           });
-          mudarTemporada();
-        } else {
-          document.getElementById('gridEpisodios').innerHTML = '<p style="color: #777; font-size: 0.8rem;">Nenhum episódio cadastrado para este título.</p>';
+          gridHtml += '</div>';
+          epContainer.innerHTML += gridHtml;
         }
       }
 
-      document.getElementById('modalOverlay').classList.add('open');
-      if (tg?.BackButton) {
-        tg.BackButton.show();
-        tg.BackButton.onClick(fecharModal);
+      document.getElementById('modalOverlay').classList.add('active');
+    }
+
+    function fecharModal(e) {
+      if (e) e.stopPropagation();
+      document.getElementById('modalOverlay').classList.remove('active');
+    }
+
+    function atualizarBotaoFavModal(isFav) {
+      document.getElementById('modalFavBtn').innerText = isFav ? '❤️' : '🤍';
+    }
+
+    function toggleFavoritoModal() {
+      if (itemSelecionado) toggleFavorito(itemSelecionado.id);
+    }
+
+    // --- TRAILER ---
+    function abrirTrailer() {
+      if (!itemSelecionado?.trailer_key) return;
+      const frame = document.getElementById('trailerFrame');
+      frame.src = `https://www.youtube-nocookie.com/embed/${itemSelecionado.trailer_key}?autoplay=1`;
+      document.getElementById('trailerOverlay').classList.add('active');
+    }
+
+    function fecharTrailer() {
+      document.getElementById('trailerFrame').src = '';
+      document.getElementById('trailerOverlay').classList.remove('active');
+    }
+
+    // --- DISPARO DE MÍDIA VIA API (RENDER -> TELEGRAM) ---
+    async function executarPlayPrincipal() {
+      if (itemSelecionado) solicitarMidia(itemSelecionado.id, 0, 0);
+    }
+
+    async function reproduzirHistorico(id, temp, ep) {
+      solicitarMidia(id, temp, ep);
+    }
+
+    async function solicitarMidia(id, temp, ep) {
+      if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+      const item = catalogoCompleto.find(i => i.id === id);
+      if (item) salvarHistorico(item, temp, ep);
+
+      const userId = tg?.initDataUnsafe?.user?.id;
+      if (userId) {
+        try {
+          await fetch(`${API_BASE_URL}/api/play?user_id=${userId}&titulo_id=${id}&tipo=${item?.tipo || 'filme'}&temporada=${temp}&episodio=${ep}`);
+          if (tg?.close) tg.close();
+          return;
+        } catch (err) {
+          console.error("Erro no play:", err);
+        }
       }
+
+      // Fallback
+      const query = temp === 0 && ep === 0 ? `play_${id}` : `play_${id}_${temp}_${ep}`;
+      window.open(`https://t.me/${BOT_USERNAME}?start=${query}`, '_blank');
     }
 
-    function mudarTemporada() {
-      const selectTemp = document.getElementById('selectTemporada');
-      const tempEscolhida = selectTemp.value;
-      const episodios = (itemSelecionado.temporadas && itemSelecionado.temporadas[tempEscolhida]) || [];
-      const grid = document.getElementById('gridEpisodios');
-      grid.innerHTML = '';
-
-      episodios.forEach(ep => {
-        const btn = document.createElement('button');
-        btn.className = 'ep-btn';
-        btn.innerText = `EP ${ep < 10 ? '0' + ep : ep}`;
-        btn.onclick = () => solicitarMidiaEpisodio(tempEscolhida, ep);
-        grid.appendChild(btn);
-      });
-    }
-
-    function fecharModal() {
-      document.getElementById('modalOverlay').classList.remove('open');
-      if (tg?.BackButton) tg.BackButton.hide();
-    }
-
-    function fecharModalExterno(e) {
-      if (e.target.id === 'modalOverlay') fecharModal();
-    }
-
-  async function solicitarMidiaFilme() {
-  if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-  
-  const userId = tg?.initDataUnsafe?.user?.id;
-  
-  if (userId) {
-    try {
-      await fetch(`${API_BASE_URL}/api/play?user_id=${userId}&titulo_id=${itemSelecionado.id}&tipo=filme`);
-      if (tg?.close) tg.close();
-      return;
-    } catch (err) {
-      console.error("Erro ao solicitar filme:", err);
-    }
-  }
-
-  // Fallback caso abra fora do Telegram
-  window.open(`https://t.me/${BOT_USERNAME}?start=play_${itemSelecionado.id}`, '_blank');
-}
-
-async function solicitarMidiaEpisodio(temporada, episodio) {
-  if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-  
-  const userId = tg?.initDataUnsafe?.user?.id;
-  
-  if (userId) {
-    try {
-      await fetch(`${API_BASE_URL}/api/play?user_id=${userId}&titulo_id=${itemSelecionado.id}&tipo=${itemSelecionado.tipo}&temporada=${temporada}&episodio=${episodio}`);
-      if (tg?.close) tg.close();
-      return;
-    } catch (err) {
-      console.error("Erro ao solicitar episodio:", err);
-    }
-  }
-
-  // Fallback caso abra fora do Telegram
-  window.open(`https://t.me/${BOT_USERNAME}?start=play_${itemSelecionado.id}_${temporada}_${episodio}`, '_blank');
-}
-
-    // Inicialização
+    // Iniciar
     carregarCatalogo();
   </script>
 </body>
