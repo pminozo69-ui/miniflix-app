@@ -461,11 +461,14 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
     c.close()
     conn.close()
     return False
-
 async def processar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.channel_post or update.message
+    # update.effective_message captura tanto posts novos quanto mensagens editadas
+    msg = update.effective_message
     if msg:
-        salvar_ou_atualizar_midia((msg.caption or msg.text or "").strip(), msg.chat_id, msg.message_id)
+        texto = (msg.caption or msg.text or "").strip()
+        if texto.startswith("#"):
+            salvar_ou_atualizar_midia(texto, msg.chat_id, msg.message_id)
+
 
 async def processar_edicao(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.edited_channel_post or update.edited_message
