@@ -474,13 +474,30 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
     conn.close()
     return False
     
-async def processar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
+#async def processar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # update.effective_message captura tanto posts novos quanto mensagens editadas
+ #   msg = update.effective_message
+  #  if msg:
+   #     texto = (msg.caption or msg.text or "").strip()
+    #    if texto.startswith("#"):
+     #       salvar_ou_atualizar_midia(texto, msg.chat_id, msg.message_id)
+
+async def processar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
-    if msg:
-        texto = (msg.caption or msg.text or "").strip()
-        if texto.startswith("#"):
-            salvar_ou_atualizar_midia(texto, msg.chat_id, msg.message_id)
+    if not msg:
+        return
+    
+    texto = (msg.caption or msg.text or "").strip()
+    print(f"\n[EVENTO RECEBIDO] Tipo: {'Edição' if update.edited_channel_post else 'Novo Post'}")
+    print(f"[TEXTO BRUTO]:\n{texto}\n{'-'*30}")
+
+    if not texto.startswith("#"):
+        print("[DESCARTADO] Motivo: Não começa com #")
+        return
+
+    sucesso = salvar_ou_atualizar_midia(texto, msg.chat_id, msg.message_id)
+    if not sucesso:
+        print("[DESCARTADO] Motivo: Não casou com o formato esperado de regex (#filme ou #anime/serie SxxExx).")
 
 
 async def processar_edicao(update: Update, context: ContextTypes.DEFAULT_TYPE):
