@@ -780,6 +780,10 @@ async def main():
     async with app:
         await app.initialize()
         await app.start()
+
+        # Remove qualquer webhook ativo para liberar o polling
+        await app.bot.delete_webhook(drop_pending_updates=True)
+        
         # allowed_updates=Update.ALL_TYPES garante que o Telegram mande TODOS os tipos de eventos (inclusive edições)
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
         logging.info("--> [BOT MINIFLIX] Rodando com sucesso!")
