@@ -50,7 +50,28 @@ def normalizar(texto: str) -> str:
         return ""
     return unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode("utf-8").lower().strip()
 
-# --- INTEGRAÇÃO COMPLETA COM TMDB (GÊNEROS, NOTA, DURAÇÃO, TRAILER) ---
+def formatar_numero(valor: float) -> str:
+    """Converte 9.0 em '09' e 9.5 em '9.5'."""
+    val = float(valor)
+    if val.is_integer():
+        return f"{int(val):02d}"
+    return f"{val:.1f}".rstrip('0').rstrip('.')
+
+def formatar_temporada(valor: float) -> str:
+    """Converte 0 em '⭐ Especiais', 1.0 em 'Temporada 1' e 1.5 em 'Temporada 1.5'."""
+    val = float(valor)
+    if val == 0:
+        return "⭐ Especiais"
+    if val.is_integer():
+        return f"Temporada {int(val)}"
+    return f"Temporada {val:.1f}".rstrip('0').rstrip('.')
+
+def formatar_valor_json(valor: float):
+    """Retorna int se for inteiro ou float se tiver decimais para compatibilidade JSON."""
+    val = float(valor)
+    return int(val) if val.is_integer() else round(val, 1)
+
+# --- INTEGRAÇÃO COM TMDB ---
 def buscar_metadados_tmdb(nome_titulo: str, categoria: str):
     tipo_busca = "movie" if categoria == "filme" else "tv"
     url_busca = f"https://api.themoviedb.org/3/search/{tipo_busca}"
@@ -62,7 +83,6 @@ def buscar_metadados_tmdb(nome_titulo: str, categoria: str):
     }
 
     try:
-        # 1. Busca inicial para obter o ID oficial do título no TMDB
         resp = requests.get(url_busca, params=params, timeout=10)
         dados = resp.json()
         resultados = dados.get("results", [])
@@ -73,7 +93,6 @@ def buscar_metadados_tmdb(nome_titulo: str, categoria: str):
         item = resultados[0]
         tmdb_id = item.get("id")
 
-        # 2. Consulta aprofundada com append_to_response=videos
         url_detalhes = f"https://api.themoviedb.org/3/{tipo_busca}/{tmdb_id}"
         params_detalhes = {
             "api_key": TMDB_API_KEY,
@@ -83,20 +102,16 @@ def buscar_metadados_tmdb(nome_titulo: str, categoria: str):
         resp_det = requests.get(url_detalhes, params=params_detalhes, timeout=10)
         detalhes = resp_det.json() if resp_det.status_code == 200 else item
 
-        # Capa e Sinopse
         poster_path = detalhes.get("poster_path") or item.get("poster_path")
         poster_url = f"{TMDB_IMG_BASE}{poster_path}" if poster_path else "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=300"
         sinopse = detalhes.get("overview") or item.get("overview") or "Sem sinopse cadastrada."
         
-        # Ano
         data_lanc = detalhes.get("release_date") or detalhes.get("first_air_date") or ""
         ano = int(data_lanc.split("-")[0]) if "-" in data_lanc else None
 
-        # ⭐ NOTA (Arredondada com 1 casa decimal, ex: 8.4)
         nota_bruta = detalhes.get("vote_average", 0.0)
         nota = round(float(nota_bruta), 1) if nota_bruta else None
 
-        # ⏱️ DURAÇÃO (Convertida para "1h 45m" ou "~45m/ep")
         duracao = ""
         if tipo_busca == "movie":
             runtime = detalhes.get("runtime")
@@ -111,10 +126,8 @@ def buscar_metadados_tmdb(nome_titulo: str, categoria: str):
             else:
                 duracao = "Série"
 
-        # 🏷️ GÊNEROS (Extrai a lista de nomes: ["Ação", "Aventura"])
         generos = [g.get("name") for g in detalhes.get("genres", []) if g.get("name")]
 
-        # 🎬 TRAILER (Captura a chave do vídeo oficial no YouTube)
         trailer_key = None
         videos = detalhes.get("videos", {}).get("results", [])
         for v in videos:
@@ -122,7 +135,6 @@ def buscar_metadados_tmdb(nome_titulo: str, categoria: str):
                 trailer_key = v.get("key")
                 break
 
-        # Fallback: Se não achar trailer em português, busca o trailer original em inglês
         if not trailer_key and tmdb_id:
             try:
                 resp_vid_en = requests.get(
@@ -141,10 +153,10 @@ def buscar_metadados_tmdb(nome_titulo: str, categoria: str):
         return poster_url, sinopse, ano, nota, duracao, generos, trailer_key
 
     except Exception as e:
-        logging.error(f"Erro ao consultar TMDB detalhado: {e}")
+        logging.error(f"Erro ao consultar TMDB: {e}")
         return None, None, None, None, None, [], None
 
-# --- BANCO DE DADOS (SUPABASE COM MIGRAÇÃO AUTOMÁTICA) ---
+# --- BANCO DE DADOS (SUPABASE COM MIGRAÇÃO AUTOMÁTICA DE DECIMAIS) ---
 def init_db():
     conn = get_db_connection()
     c = conn.cursor()
@@ -179,13 +191,24 @@ def init_db():
         CREATE TABLE IF NOT EXISTS arquivos (
             id SERIAL PRIMARY KEY,
             titulo_id INTEGER REFERENCES titulos(id) ON DELETE CASCADE,
-            temporada INTEGER NOT NULL,
-            episodio INTEGER NOT NULL,
+            temporada NUMERIC(4, 1) NOT NULL,
+            episodio NUMERIC(4, 1) NOT NULL,
             chat_id BIGINT NOT NULL,
             message_id BIGINT NOT NULL,
             UNIQUE(chat_id, message_id)
         );
     """)
+    # Migração automática das colunas de inteiros para numéricas/decimais
+    try:
+        c.execute("""
+            ALTER TABLE arquivos 
+            ALTER COLUMN temporada TYPE NUMERIC(4, 1),
+            ALTER COLUMN episodio TYPE NUMERIC(4, 1);
+        """)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             user_id BIGINT PRIMARY KEY,
@@ -196,7 +219,7 @@ def init_db():
     c.close()
     conn.close()
 
-# --- SERVIDOR WEB NATIVO (API DO CATÁLOGO, DISPARO E HISTÓRICO) ---
+# --- SERVIDOR WEB NATIVO (API DO CATÁLOGO E DISPARO) ---
 class ServidorWebHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -208,14 +231,14 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
                 user_id = int(params.get("user_id", [0])[0])
                 titulo_id = int(params.get("titulo_id", [0])[0])
                 tipo = params.get("tipo", ["filme"])[0]
-                temp = int(params.get("temporada", [0])[0])
-                ep = int(params.get("episodio", [0])[0])
+                temp = float(params.get("temporada", [0.0])[0])
+                ep = float(params.get("episodio", [0.0])[0])
 
                 if user_id and titulo_id:
                     conn = get_db_connection()
                     c = conn.cursor()
                     
-                    if tipo == "filme" or (temp == 0 and ep == 0):
+                    if tipo == "filme" or (temp == 0.0 and ep == 0.0):
                         c.execute("SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s LIMIT 1;", (titulo_id,))
                     else:
                         c.execute(
@@ -229,15 +252,19 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
                         
                         reply_markup = None
                         if tipo != "filme":
+                            # Busca o próximo episódio sequencial na ordem crescente (suporta decimais)
                             c.execute(
-                                "SELECT id, episodio FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s LIMIT 1;",
-                                (titulo_id, temp, ep + 1)
+                                """SELECT id, episodio FROM arquivos 
+                                   WHERE titulo_id = %s AND temporada = %s AND episodio > %s 
+                                   ORDER BY episodio ASC LIMIT 1;""",
+                                (titulo_id, temp, ep)
                             )
                             prox = c.fetchone()
                             if prox:
+                                label_prox = formatar_numero(prox[1])
                                 reply_markup = {
                                     "inline_keyboard": [[{
-                                        "text": f"▶️ Próximo (Ep {prox[1]:02d})",
+                                        "text": f"▶️ Próximo (Ep {label_prox})",
                                         "callback_data": f"play:{prox[0]}"
                                     }]]
                                 }
@@ -322,11 +349,12 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
                         }
                     
                     if cat != "filme" and temp is not None and ep is not None:
-                        temp_str = str(temp)
+                        temp_str = str(formatar_valor_json(temp))
+                        ep_formatado = formatar_valor_json(ep)
                         if temp_str not in titulos_map[t_id]["temporadas"]:
                             titulos_map[t_id]["temporadas"][temp_str] = []
-                        if ep not in titulos_map[t_id]["temporadas"][temp_str]:
-                            titulos_map[t_id]["temporadas"][temp_str].append(ep)
+                        if ep_formatado not in titulos_map[t_id]["temporadas"][temp_str]:
+                            titulos_map[t_id]["temporadas"][temp_str].append(ep_formatado)
 
                 corpo = json.dumps(list(titulos_map.values()), ensure_ascii=False).encode("utf-8")
                 self.send_response(200)
@@ -353,17 +381,16 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
 def iniciar_servidor_web():
     porta = int(os.environ.get("PORT", 8080))
     httpd = HTTPServer(("0.0.0.0", porta), ServidorWebHandler)
-    logging.info(f"--> [API + RENDER] Servidor HTTP nativo rodando na porta {porta}")
+    logging.info(f"--> [API + WEB] Servidor HTTP rodando na porta {porta}")
     httpd.serve_forever()
 
-# --- INGESTÃO AUTOMÁTICA COM DETECÇÃO DE ÁUDIO E METADADOS ---
+# --- INGESTÃO AUTOMÁTICA COM DETECÇÃO DE DECIMAIS E METADADOS ---
 def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int):
     if not texto_completo.startswith("#"):
         return False
 
     texto_lower = texto_completo.lower()
     
-    # 1. Identifica se é Dublado ou Legendado pela hashtag
     audio = "Dublado"
     if "#legendado" in texto_lower or "#leg" in texto_lower or "[leg]" in texto_lower:
         audio = "Legendado"
@@ -373,16 +400,21 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
         audio = "Dublado / Legendado"
 
     primeira_linha = texto_completo.split("\n")[0].strip()
-    match_ep = re.match(r"^#(serie|anime|cartoon)\s+(.+?)\s+[sS](\d+)[eE](\d+)", primeira_linha, re.IGNORECASE)
+    
+    # Regex flexível para capturar inteiros e decimais (ex: S01.5 e E09.5)
+    match_ep = re.match(
+        r"^#(serie|anime|cartoon)\s+(.+?)\s+[sS](\d+(?:\.\d+)?)[eE](\d+(?:\.\d+)?)",
+        primeira_linha,
+        re.IGNORECASE,
+    )
     match_filme = re.match(r"^#filme\s+(.+)", primeira_linha, re.IGNORECASE)
 
     conn = get_db_connection()
     c = conn.cursor()
 
-    # --- SE FOR SÉRIE / ANIME / CARTOON ---
     if match_ep:
         cat, nome_bruto = match_ep.group(1).lower(), match_ep.group(2).strip()
-        temp, ep = int(match_ep.group(3)), int(match_ep.group(4))
+        temp, ep = float(match_ep.group(3)), float(match_ep.group(4))
         
         nome = re.sub(r"#\w+", "", nome_bruto).strip().title()
         nome_busca = normalizar(nome)
@@ -390,7 +422,6 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
         poster_url, sinopse, ano, nota, duracao, generos, trailer_key = buscar_metadados_tmdb(nome, cat)
         generos_json = json.dumps(generos, ensure_ascii=False) if generos else "[]"
 
-        # Salva o título (ou atualiza se já existir)
         c.execute("""
             INSERT INTO titulos (categoria, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos, trailer_key, audio)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -409,7 +440,6 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
         c.execute("SELECT id FROM titulos WHERE nome = %s;", (nome,))
         titulo_id = c.fetchone()[0]
 
-        # Salva o arquivo/episódio
         c.execute("""
             INSERT INTO arquivos (titulo_id, temporada, episodio, chat_id, message_id)
             VALUES (%s, %s, %s, %s, %s)
@@ -422,10 +452,9 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
         conn.commit()
         c.close()
         conn.close()
-        print(f"--> [TMDB + SUPABASE] {nome} (S{temp:02d}E{ep:02d}) [{audio}] salvo/atualizado.")
+        print(f"--> [TMDB + SUPABASE] {nome} (S{temp}E{ep}) [{audio}] salvo/atualizado.")
         return True
 
-    # --- SE FOR FILME ---
     elif match_filme:
         cat = "filme"
         nome_bruto = match_filme.group(1).strip()
@@ -435,7 +464,6 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
         poster_url, sinopse, ano, nota, duracao, generos, trailer_key = buscar_metadados_tmdb(nome, cat)
         generos_json = json.dumps(generos, ensure_ascii=False) if generos else "[]"
 
-        # Salva o filme (ou atualiza se já existir)
         c.execute("""
             INSERT INTO titulos (categoria, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos, trailer_key, audio)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -454,14 +482,13 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
         c.execute("SELECT id FROM titulos WHERE nome = %s;", (nome,))
         titulo_id = c.fetchone()[0]
 
-        # Salva o arquivo do filme
         c.execute("""
             INSERT INTO arquivos (titulo_id, temporada, episodio, chat_id, message_id)
-            VALUES (%s, 0, 0, %s, %s)
+            VALUES (%s, 0.0, 0.0, %s, %s)
             ON CONFLICT (chat_id, message_id) DO UPDATE SET
                 titulo_id = EXCLUDED.titulo_id,
-                temporada = 0,
-                episodio = 0;
+                temporada = 0.0,
+                episodio = 0.0;
         """, (titulo_id, chat_id, message_id))
         
         conn.commit()
@@ -473,14 +500,6 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
     c.close()
     conn.close()
     return False
-    
-#async def processar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # update.effective_message captura tanto posts novos quanto mensagens editadas
- #   msg = update.effective_message
-  #  if msg:
-   #     texto = (msg.caption or msg.text or "").strip()
-    #    if texto.startswith("#"):
-     #       salvar_ou_atualizar_midia(texto, msg.chat_id, msg.message_id)
 
 async def processar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
@@ -488,17 +507,10 @@ async def processar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     
     texto = (msg.caption or msg.text or "").strip()
-    print(f"\n[EVENTO RECEBIDO] Tipo: {'Edição' if update.edited_channel_post else 'Novo Post'}")
-    print(f"[TEXTO BRUTO]:\n{texto}\n{'-'*30}")
-
     if not texto.startswith("#"):
-        print("[DESCARTADO] Motivo: Não começa com #")
         return
 
-    sucesso = salvar_ou_atualizar_midia(texto, msg.chat_id, msg.message_id)
-    if not sucesso:
-        print("[DESCARTADO] Motivo: Não casou com o formato esperado de regex (#filme ou #anime/serie SxxExx).")
-
+    salvar_ou_atualizar_midia(texto, msg.chat_id, msg.message_id)
 
 async def processar_edicao(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.edited_channel_post or update.edited_message
@@ -527,15 +539,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         titulo_id = int(partes[1])
         
         if len(partes) >= 4:
-            temp = int(partes[2])
-            ep = int(partes[3])
+            temp = float(partes[2])
+            ep = float(partes[3])
             c.execute(
                 "SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s LIMIT 1;",
                 (titulo_id, temp, ep)
             )
         else:
             c.execute("SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s LIMIT 1;", (titulo_id,))
-            temp, ep = 0, 0
+            temp, ep = 0.0, 0.0
             
         arq = c.fetchone()
         if arq:
@@ -544,12 +556,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             btn_prox = None
             if len(partes) >= 4:
                 c.execute(
-                    "SELECT id, episodio FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s;",
-                    (titulo_id, temp, ep + 1)
+                    """SELECT id, episodio FROM arquivos 
+                       WHERE titulo_id = %s AND temporada = %s AND episodio > %s 
+                       ORDER BY episodio ASC LIMIT 1;""",
+                    (titulo_id, temp, ep)
                 )
                 prox = c.fetchone()
                 if prox:
-                    btn_prox = InlineKeyboardMarkup([[InlineKeyboardButton(f"▶️ Próximo (Ep {prox[1]:02d})", callback_data=f"play:{prox[0]}")]])
+                    label_prox = formatar_numero(prox[1])
+                    btn_prox = InlineKeyboardMarkup([[InlineKeyboardButton(f"▶️ Próximo (Ep {label_prox})", callback_data=f"play:{prox[0]}")]])
 
             await context.bot.copy_message(
                 chat_id=update.effective_chat.id,
@@ -651,12 +666,13 @@ async def tratar_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         c.execute("SELECT DISTINCT temporada FROM arquivos WHERE titulo_id = %s ORDER BY temporada ASC;", (titulo_id,))
         temporadas = c.fetchall()
-        botoes = [[InlineKeyboardButton(f"Temporada {t[0]}", callback_data=f"temp:{titulo_id}:{t[0]}")] for t in temporadas]
+        botoes = [[InlineKeyboardButton(formatar_temporada(t[0]), callback_data=f"temp:{titulo_id}:{t[0]}")] for t in temporadas]
         botoes.append([InlineKeyboardButton("↩ Voltar", callback_data=f"cat:{cat}:0")])
         await query.edit_message_text(f"📺 **{titulo}**\nSelecione a temporada:", reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
 
     elif acao == "temp":
-        titulo_id, temp = int(dados[1]), int(dados[2])
+        titulo_id = int(dados[1])
+        temp = float(dados[2])
         c.execute("SELECT nome, categoria FROM titulos WHERE id = %s;", (titulo_id,))
         titulo, cat = c.fetchone()
 
@@ -665,7 +681,8 @@ async def tratar_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         botoes, linha = [], []
         for ep_id, ep_num in episodios:
-            linha.append(InlineKeyboardButton(f"{ep_num:02d}", callback_data=f"play:{ep_id}"))
+            label = formatar_numero(ep_num)
+            linha.append(InlineKeyboardButton(label, callback_data=f"play:{ep_id}"))
             if len(linha) == 5:
                 botoes.append(linha)
                 linha = []
@@ -673,7 +690,8 @@ async def tratar_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             botoes.append(linha)
 
         botoes.append([InlineKeyboardButton("↩ Voltar às Temporadas", callback_data=f"tit:{titulo_id}")])
-        await query.edit_message_text(f"🎬 **{titulo}** — *Temporada {temp}*\nEscolha o episódio:", reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+        rotulo_temp = formatar_temporada(temp)
+        await query.edit_message_text(f"🎬 **{titulo}** — *{rotulo_temp}*\nEscolha o episódio:", reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
 
     elif acao == "play":
         arq_id = int(dados[1])
@@ -681,9 +699,20 @@ async def tratar_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         arq = c.fetchone()
         if arq:
             titulo_id, temp_atual, ep_atual, chat_origem, msg_origem = arq
-            c.execute("SELECT id, episodio FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s;", (titulo_id, temp_atual, ep_atual + 1))
+            
+            # Busca o episódio imediatamente maior na sequência (suporta decimais como 9.0 -> 9.5 -> 10.0)
+            c.execute(
+                """SELECT id, episodio FROM arquivos 
+                   WHERE titulo_id = %s AND temporada = %s AND episodio > %s 
+                   ORDER BY episodio ASC LIMIT 1;""",
+                (titulo_id, temp_atual, ep_atual)
+            )
             prox = c.fetchone()
-            btn_prox = InlineKeyboardMarkup([[InlineKeyboardButton(f"▶️ Próximo (Ep {prox[1]:02d})", callback_data=f"play:{prox[0]}")]]) if prox else None
+            
+            btn_prox = None
+            if prox:
+                label_prox = formatar_numero(prox[1])
+                btn_prox = InlineKeyboardMarkup([[InlineKeyboardButton(f"▶️ Próximo (Ep {label_prox})", callback_data=f"play:{prox[0]}")]])
 
             await context.bot.copy_message(
                 chat_id=query.message.chat_id,
@@ -754,37 +783,29 @@ async def main():
         .build()
     )
 
-    # -------------------------------------------------------------
-    # 📡 AQUI ESTÃO OS MONITORAMENTOS (HANDLERS):
-    # -------------------------------------------------------------
-    
-    # 1. Antena para POSTS NOVOS no canal (quando você envia um filme do zero)
+    # Monitoramento de posts novos no canal
     app.add_handler(MessageHandler(
         (filters.ChatType.CHANNEL | filters.ChatType.GROUPS | filters.ChatType.SUPERGROUP) & ~filters.COMMAND, 
         processar_postagem
     ))
     
-    # 2. Antena para POSTS EDITADOS no canal (quando você altera a legenda de um filme antigo)
+    # Monitoramento de posts editados no canal
     app.add_handler(MessageHandler(
         filters.UpdateType.EDITED_CHANNEL_POST | filters.UpdateType.EDITED_MESSAGE, 
         processar_postagem
     ))
 
-    # 3. Antenas para comandos e mensagens no privado
+    # Comandos e navegação no privado
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CallbackQueryHandler(tratar_callbacks))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, buscar_texto))
 
-    # Inicia o bot
     async with app:
         await app.initialize()
         await app.start()
 
-        # Remove qualquer webhook ativo para liberar o polling
         await app.bot.delete_webhook(drop_pending_updates=True)
-        
-        # allowed_updates=Update.ALL_TYPES garante que o Telegram mande TODOS os tipos de eventos (inclusive edições)
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
         logging.info("--> [BOT MINIFLIX] Rodando com sucesso!")
         
