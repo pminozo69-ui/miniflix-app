@@ -35,7 +35,7 @@
       padding-bottom: 40px;
     }
 
-    /* CLASSE PARA ESCONDER BARRA DE ROLAGEM MANTENDO O SCROLL */
+    /* ESCONDER BARRA DE ROLAGEM MANTENDO SCROLL */
     .scrollbar-hide {
       -webkit-overflow-scrolling: touch;
       -ms-overflow-style: none;
@@ -655,7 +655,7 @@
       <input type="text" id="searchInput" placeholder="Buscar filmes, séries, animes..." />
     </div>
 
-    <!-- TABS -->
+    <!-- TABS DE CATEGORIA -->
     <div class="tabs-nav scrollbar-hide">
       <button class="tab-btn active" onclick="filtrarCategoria('todos')">🔥 Todos</button>
       <button class="tab-btn" onclick="filtrarCategoria('filme')">🎬 Filmes</button>
@@ -669,15 +669,15 @@
   <!-- CHIPS DE GÊNERO -->
   <div class="chips-container scrollbar-hide" id="genresChips"></div>
 
-  <!-- ADICIONADOS RECENTEMENTE -->
+  <!-- SEÇÃO: ADICIONADOS RECENTEMENTE (FILTRA CONFORME A CATEGORIA ATIVA) -->
   <div id="recentesSection" style="display: none;">
     <div class="section-title">🔥 Adicionados Recentemente</div>
     <div class="recentes-row scrollbar-hide" id="recentesRow"></div>
   </div>
 
-  <!-- GRADE DE TÍTULOS -->
+  <!-- GRADE DE TÍTULOS (ORDEM ALFABÉTICA) -->
   <div class="grid" id="catalogGrid">
-    <div class="empty-state">Sincronizando catálogo com o TMDB...</div>
+    <div class="empty-state">Sincronizando catálogo...</div>
   </div>
 
   <!-- MODAL DE DETALHES -->
@@ -731,7 +731,7 @@
     <button class="btn-close-trailer" onclick="fecharTrailer()">✕ Fechar Trailer</button>
   </div>
 
-  <!-- TELA DE CARREGAMENTO / DISPARO DE MÍDIA -->
+  <!-- TELA DE CARREGAMENTO -->
   <div class="loading-overlay" id="loadingOverlay">
     <div class="loader-box">
       <div class="loader-spinner"></div>
@@ -786,7 +786,6 @@
         
         document.getElementById('statusBadge').innerText = `${catalogoCompleto.length} títulos`;
         gerarChipsGeneros();
-        renderAdicionadosRecentemente();
         renderCatalogo();
       } catch (err) {
         console.error(err);
@@ -833,13 +832,25 @@
       renderCatalogo();
     }
 
-    // --- RENDERIZAR ADICIONADOS RECENTEMENTE ---
+    // --- RENDERIZAR CARROSSEL "ADICIONADOS RECENTEMENTE" (DINÂMICO COM A CATEGORIA SELECIONADA) ---
     function renderAdicionadosRecentemente() {
       const sec = document.getElementById('recentesSection');
       const row = document.getElementById('recentesRow');
 
-      // Como o backend ordena por ID / criado_em DESC, pegamos os primeiros 10 itens
-      const recentes = catalogoCompleto.slice(0, 10);
+      // Se estiver na aba 'favoritos', esconde a seção
+      if (categoriaAtiva === 'favoritos') {
+        sec.style.display = 'none';
+        return;
+      }
+
+      // Filtra os itens mais recentes de acordo com o tipo/categoria ativa
+      let listaRecentes = catalogoCompleto;
+      if (categoriaAtiva !== 'todos') {
+        listaRecentes = listaRecentes.filter(item => item.tipo === categoriaAtiva);
+      }
+
+      // Pega até os 10 últimos cadastrados dessa categoria específica
+      const recentes = listaRecentes.slice(0, 10);
 
       if (recentes.length === 0) {
         sec.style.display = 'none';
@@ -864,12 +875,16 @@
       }).join('');
     }
 
-    // --- RENDERIZAR GRADE DE TÍTULOS ---
+    // --- RENDERIZAR GRADE PRINCIPAL (TUDO EM ORDEM ALFABÉTICA A-Z) ---
     function renderCatalogo() {
+      // 1. Atualiza o carrossel superior baseado na categoria selecionada
+      renderAdicionadosRecentemente();
+
       const termo = document.getElementById('searchInput').value.toLowerCase().trim();
       const favs = getFavoritos();
       const grid = document.getElementById('catalogGrid');
 
+      // 2. Filtra os títulos do catálogo geral
       let lista = catalogoCompleto.filter(item => {
         if (categoriaAtiva === 'favoritos' && !favs.includes(item.id)) return false;
         if (categoriaAtiva !== 'todos' && categoriaAtiva !== 'favoritos' && item.tipo !== categoriaAtiva) return false;
@@ -877,6 +892,9 @@
         if (termo && !item.titulo.toLowerCase().includes(termo)) return false;
         return true;
       });
+
+      // 3. ORDENA EM ORDEM ALFABÉTICA (A-Z)
+      lista.sort((a, b) => a.titulo.localeCompare(b.titulo, 'pt-BR', { sensitivity: 'base' }));
 
       if (lista.length === 0) {
         grid.innerHTML = `<div class="empty-state">Nenhum título encontrado.</div>`;
@@ -989,7 +1007,7 @@
       document.getElementById('trailerOverlay').classList.remove('active');
     }
 
-    // --- DISPARO DE MÍDIA VIA API (RENDER -> TELEGRAM) ---
+    // --- DISPARO DE MÍDIA VIA API ---
     async function executarPlayPrincipal() {
       if (itemSelecionado) solicitarMidia(itemSelecionado.id, 0, 0);
     }
