@@ -156,7 +156,7 @@ def buscar_metadados_tmdb(nome_titulo: str, categoria: str):
         logging.error(f"Erro ao consultar TMDB: {e}")
         return None, None, None, None, None, [], None
 
-# --- BANCO DE DADOS (SUPABASE COM MIGRAÇÃO AUTOMÁTICA DE DECIMAIS) ---
+# --- BANCO DE DADOS (SUPABASE COM COLUNA CRIADO_EM E MIGRAÇÃO) ---
 def init_db():
     conn = get_db_connection()
     c = conn.cursor()
@@ -173,7 +173,8 @@ def init_db():
             duracao TEXT,
             generos TEXT,
             trailer_key TEXT,
-            audio TEXT
+            audio TEXT,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
     c.execute("""
@@ -185,7 +186,8 @@ def init_db():
         ADD COLUMN IF NOT EXISTS duracao TEXT,
         ADD COLUMN IF NOT EXISTS generos TEXT,
         ADD COLUMN IF NOT EXISTS trailer_key TEXT,
-        ADD COLUMN IF NOT EXISTS audio TEXT;
+        ADD COLUMN IF NOT EXISTS audio TEXT,
+        ADD COLUMN IF NOT EXISTS criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
     """)
     c.execute("""
         CREATE TABLE IF NOT EXISTS arquivos (
@@ -198,7 +200,6 @@ def init_db():
             UNIQUE(chat_id, message_id)
         );
     """)
-    # Migração automática das colunas de inteiros para numéricas/decimais
     try:
         c.execute("""
             ALTER TABLE arquivos 
@@ -252,7 +253,6 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
                         
                         reply_markup = None
                         if tipo != "filme":
-                            # Busca o próximo episódio sequencial na ordem crescente (suporta decimais)
                             c.execute(
                                 """SELECT id, episodio FROM arquivos 
                                    WHERE titulo_id = %s AND temporada = %s AND episodio > %s 
@@ -304,7 +304,7 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(corpo)
 
-        # 2. Rota do Catálogo com Metadados Ricos
+        # 2. Rota do Catálogo (Ordenado pelos Adicionados Recentemente)
         elif parsed.path == "/api/catalogo":
             try:
                 conn = get_db_connection()
@@ -312,10 +312,10 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
                 c.execute("""
                     SELECT t.id, t.categoria, t.nome, t.poster_url, t.sinopse, t.ano,
                            t.nota, t.duracao, t.generos, t.trailer_key, t.audio,
-                           a.temporada, a.episodio
+                           a.temporada, a.episodio, t.criado_em
                     FROM titulos t
                     LEFT JOIN arquivos a ON t.id = a.titulo_id
-                    ORDER BY t.nome ASC, a.temporada ASC, a.episodio ASC;
+                    ORDER BY t.id DESC, a.temporada ASC, a.episodio ASC;
                 """)
                 linhas = c.fetchall()
                 c.close()
@@ -323,7 +323,7 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
 
                 titulos_map = {}
                 for r in linhas:
-                    t_id, cat, nome, poster, sinopse, ano, nota, duracao, generos_raw, trailer_key, audio, temp, ep = r
+                    t_id, cat, nome, poster, sinopse, ano, nota, duracao, generos_raw, trailer_key, audio, temp, ep, criado_em = r
                     
                     if t_id not in titulos_map:
                         generos_list = []
@@ -384,7 +384,7 @@ def iniciar_servidor_web():
     logging.info(f"--> [API + WEB] Servidor HTTP rodando na porta {porta}")
     httpd.serve_forever()
 
-# --- INGESTÃO AUTOMÁTICA COM DETECÇÃO DE DECIMAIS E METADADOS ---
+# --- INGESTÃO AUTOMÁTICA ---
 def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int):
     if not texto_completo.startswith("#"):
         return False
@@ -401,7 +401,6 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
 
     primeira_linha = texto_completo.split("\n")[0].strip()
     
-    # Regex flexível para capturar inteiros e decimais (ex: S01.5 e E09.5)
     match_ep = re.match(
         r"^#(serie|anime|cartoon)\s+(.+?)\s+[sS](\d+(?:\.\d+)?)[eE](\d+(?:\.\d+)?)",
         primeira_linha,
@@ -700,7 +699,6 @@ async def tratar_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if arq:
             titulo_id, temp_atual, ep_atual, chat_origem, msg_origem = arq
             
-            # Busca o episódio imediatamente maior na sequência (suporta decimais como 9.0 -> 9.5 -> 10.0)
             c.execute(
                 """SELECT id, episodio FROM arquivos 
                    WHERE titulo_id = %s AND temporada = %s AND episodio > %s 
@@ -783,19 +781,16 @@ async def main():
         .build()
     )
 
-    # Monitoramento de posts novos no canal
     app.add_handler(MessageHandler(
         (filters.ChatType.CHANNEL | filters.ChatType.GROUPS | filters.ChatType.SUPERGROUP) & ~filters.COMMAND, 
         processar_postagem
     ))
     
-    # Monitoramento de posts editados no canal
     app.add_handler(MessageHandler(
         filters.UpdateType.EDITED_CHANNEL_POST | filters.UpdateType.EDITED_MESSAGE, 
         processar_postagem
     ))
 
-    # Comandos e navegação no privado
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CallbackQueryHandler(tratar_callbacks))
