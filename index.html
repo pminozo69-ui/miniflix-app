@@ -35,6 +35,18 @@
       padding-bottom: 40px;
     }
 
+    /* CLASSE PARA ESCONDER BARRA DE ROLAGEM MANTENDO O SCROLL */
+    .scrollbar-hide {
+      -webkit-overflow-scrolling: touch;
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    .scrollbar-hide::-webkit-scrollbar {
+      display: none;
+      width: 0;
+      height: 0;
+    }
+
     /* HEADER FIXO */
     header {
       position: sticky;
@@ -99,10 +111,8 @@
       display: flex;
       gap: 8px;
       overflow-x: auto;
-      scrollbar-width: none;
       padding-bottom: 4px;
     }
-    .tabs-nav::-webkit-scrollbar { display: none; }
 
     .tab-btn {
       background: var(--card-bg);
@@ -128,10 +138,8 @@
       display: flex;
       gap: 6px;
       overflow-x: auto;
-      scrollbar-width: none;
       padding: 10px 16px 4px 16px;
     }
-    .chips-container::-webkit-scrollbar { display: none; }
 
     .chip {
       background: rgba(255, 255, 255, 0.05);
@@ -151,7 +159,7 @@
       color: #ff6b6b;
     }
 
-    /* SEÇÃO CONTINUAR ASSISTINDO */
+    /* SEÇÃO ADICIONADOS RECENTEMENTE */
     .section-title {
       font-size: 15px;
       font-weight: 700;
@@ -162,49 +170,91 @@
       gap: 6px;
     }
 
-    .history-row {
+    .recentes-row {
       display: flex;
       gap: 12px;
       overflow-x: auto;
-      scrollbar-width: none;
       padding: 0 16px 12px;
     }
-    .history-row::-webkit-scrollbar { display: none; }
 
-    .history-card {
-      min-width: 140px;
-      max-width: 140px;
+    .recentes-card {
+      min-width: 120px;
+      max-width: 120px;
       background: var(--card-bg);
-      border-radius: 8px;
+      border-radius: 10px;
       overflow: hidden;
       border: 1px solid var(--border);
       cursor: pointer;
       flex-shrink: 0;
+      transition: transform 0.2s;
     }
 
-    .history-card img {
+    .recentes-card:active {
+      transform: scale(0.96);
+    }
+
+    .recentes-poster-box {
+      position: relative;
       width: 100%;
-      height: 80px;
+      padding-top: 150%;
+      background: #111;
+    }
+
+    .recentes-poster-box img {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
       object-fit: cover;
     }
 
-    .history-card-body {
+    .badge-novo {
+      position: absolute;
+      top: 6px;
+      left: 6px;
+      background: var(--primary);
+      color: #fff;
+      font-size: 8px;
+      font-weight: 800;
+      padding: 2px 5px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    }
+
+    .badge-nota {
+      position: absolute;
+      bottom: 6px;
+      right: 6px;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(4px);
+      color: var(--gold);
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 5px;
+      border-radius: 4px;
+    }
+
+    .recentes-card-body {
       padding: 8px;
     }
 
-    .history-card-title {
+    .recentes-card-title {
       font-size: 12px;
       font-weight: 700;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      color: #fff;
     }
 
-    .history-card-sub {
+    .recentes-card-sub {
       font-size: 10px;
-      color: var(--primary);
+      color: var(--text-muted);
       margin-top: 2px;
-      font-weight: 600;
+      text-transform: capitalize;
     }
 
     /* GRADE PRINCIPAL */
@@ -519,7 +569,7 @@
       font-size: 14px;
     }
 
-    /* TELA DE CARREGAMENTO (LOADING OVERLAY) */
+    /* TELA DE CARREGAMENTO */
     .loading-overlay {
       position: fixed;
       inset: 0;
@@ -606,7 +656,7 @@
     </div>
 
     <!-- TABS -->
-    <div class="tabs-nav">
+    <div class="tabs-nav scrollbar-hide">
       <button class="tab-btn active" onclick="filtrarCategoria('todos')">🔥 Todos</button>
       <button class="tab-btn" onclick="filtrarCategoria('filme')">🎬 Filmes</button>
       <button class="tab-btn" onclick="filtrarCategoria('serie')">📺 Séries</button>
@@ -617,12 +667,12 @@
   </header>
 
   <!-- CHIPS DE GÊNERO -->
-  <div class="chips-container" id="genresChips"></div>
+  <div class="chips-container scrollbar-hide" id="genresChips"></div>
 
-  <!-- CONTINUAR ASSISTINDO -->
-  <div id="historySection" style="display: none;">
-    <div class="section-title">⏱️ Continuar Assistindo</div>
-    <div class="history-row" id="historyRow"></div>
+  <!-- ADICIONADOS RECENTEMENTE -->
+  <div id="recentesSection" style="display: none;">
+    <div class="section-title">🔥 Adicionados Recentemente</div>
+    <div class="recentes-row scrollbar-hide" id="recentesRow"></div>
   </div>
 
   <!-- GRADE DE TÍTULOS -->
@@ -693,7 +743,7 @@
 
   <script>
     // --- CONFIGURAÇÕES ---
-    const API_BASE_URL = "https://miniflix-app.onrender.com"; // Verifique se esta é a URL do seu serviço no Render
+    const API_BASE_URL = "https://miniflix-app.onrender.com/api";
     const BOT_USERNAME = "miniflix_drive_bot";
 
     const tg = window.Telegram?.WebApp;
@@ -707,7 +757,7 @@
     let generoAtivo = 'todos';
     let itemSelecionado = null;
 
-    // --- FAVORITOS E HISTÓRICO LOCALSTORAGE ---
+    // --- FAVORITOS LOCALSTORAGE ---
     function getFavoritos() {
       return JSON.parse(localStorage.getItem('miniflix_favs') || '[]');
     }
@@ -727,35 +777,16 @@
       }
     }
 
-    function getHistorico() {
-      return JSON.parse(localStorage.getItem('miniflix_history') || '[]');
-    }
-
-    function salvarHistorico(item, temp = 0, ep = 0) {
-      let hist = getHistorico().filter(h => h.id !== item.id);
-      hist.unshift({
-        id: item.id,
-        titulo: item.titulo,
-        img: item.img,
-        tipo: item.tipo,
-        temporada: temp,
-        episodio: ep,
-        data: Date.now()
-      });
-      localStorage.setItem('miniflix_history', JSON.stringify(hist.slice(0, 10)));
-      renderHistorico();
-    }
-
     // --- CARREGAMENTO DO CATÁLOGO ---
     async function carregarCatalogo() {
       try {
-        const resp = await fetch(`${API_BASE_URL}/api/catalogo`);
+        const resp = await fetch(`${API_BASE_URL}/catalogo`);
         if (!resp.ok) throw new Error("Erro na requisição");
         catalogoCompleto = await resp.json();
         
         document.getElementById('statusBadge').innerText = `${catalogoCompleto.length} títulos`;
         gerarChipsGeneros();
-        renderHistorico();
+        renderAdicionadosRecentemente();
         renderCatalogo();
       } catch (err) {
         console.error(err);
@@ -802,26 +833,31 @@
       renderCatalogo();
     }
 
-    // --- RENDERIZAR CONTINUAR ASSISTINDO ---
-    function renderHistorico() {
-      const hist = getHistorico();
-      const sec = document.getElementById('historySection');
-      const row = document.getElementById('historyRow');
+    // --- RENDERIZAR ADICIONADOS RECENTEMENTE ---
+    function renderAdicionadosRecentemente() {
+      const sec = document.getElementById('recentesSection');
+      const row = document.getElementById('recentesRow');
 
-      if (hist.length === 0) {
+      // Como o backend ordena por ID / criado_em DESC, pegamos os primeiros 10 itens
+      const recentes = catalogoCompleto.slice(0, 10);
+
+      if (recentes.length === 0) {
         sec.style.display = 'none';
         return;
       }
 
       sec.style.display = 'block';
-      row.innerHTML = hist.map(h => {
-        const sub = h.tipo === 'filme' ? 'Filme' : `T${h.temporada}:E${h.episodio}`;
+      row.innerHTML = recentes.map(item => {
         return `
-          <div class="history-card" onclick="reproduzirHistorico(${h.id}, ${h.temporada}, ${h.episodio})">
-            <img src="${h.img}" alt="${h.titulo}" />
-            <div class="history-card-body">
-              <div class="history-card-title">${h.titulo}</div>
-              <div class="history-card-sub">▶️ Continuar (${sub})</div>
+          <div class="recentes-card" onclick="abrirModal(${item.id})">
+            <div class="recentes-poster-box">
+              <img src="${item.img}" alt="${item.titulo}" loading="lazy" />
+              <div class="badge-novo">NOVO</div>
+              ${item.nota ? `<div class="badge-nota">⭐ ${item.nota}</div>` : ''}
+            </div>
+            <div class="recentes-card-body">
+              <div class="recentes-card-title">${item.titulo}</div>
+              <div class="recentes-card-sub">${item.tipo} • ${item.ano || 'N/A'}</div>
             </div>
           </div>
         `;
@@ -864,7 +900,7 @@
             <div class="card-info">
               <div class="card-title">${item.titulo}</div>
               <div class="card-meta">
-                <span>${item.ano}</span>
+                <span>${item.ano || ''}</span>
                 <span>${item.duracao || item.tipo.toUpperCase()}</span>
               </div>
             </div>
@@ -884,7 +920,7 @@
       const favs = getFavoritos();
       document.getElementById('modalPoster').src = itemSelecionado.img;
       document.getElementById('modalTitle').innerText = itemSelecionado.titulo;
-      document.getElementById('modalRating').innerText = itemSelecionado.nota ? `⭐ ${itemSelecionado.nota.toFixed(1)}` : '⭐ N/A';
+      document.getElementById('modalRating').innerText = itemSelecionado.nota ? `⭐ ${itemSelecionado.nota}` : '⭐ N/A';
       document.getElementById('modalYear').innerText = itemSelecionado.ano || '';
       document.getElementById('modalDuration').innerText = itemSelecionado.duracao ? `⏱️ ${itemSelecionado.duracao}` : '';
       document.getElementById('modalAudio').innerText = `🔊 ${itemSelecionado.audio || 'Dublado'}`;
@@ -913,7 +949,8 @@
         epContainer.innerHTML = '';
         const temps = itemSelecionado.temporadas || {};
         for (const [tNum, eps] of Object.entries(temps)) {
-          epContainer.innerHTML += `<div style="font-size: 12px; font-weight: 700; margin: 8px 0 4px; color: #8e95a5;">Temporada ${tNum}</div>`;
+          const rotuloTemp = tNum === '0' ? '⭐ Especiais' : `Temporada ${tNum}`;
+          epContainer.innerHTML += `<div style="font-size: 12px; font-weight: 700; margin: 8px 0 4px; color: #8e95a5;">${rotuloTemp}</div>`;
           let gridHtml = '<div class="ep-grid">';
           eps.forEach(epNum => {
             gridHtml += `<button class="ep-btn" onclick="solicitarMidia(${itemSelecionado.id}, ${tNum}, ${epNum})">EP ${epNum.toString().padStart(2, '0')}</button>`;
@@ -957,10 +994,6 @@
       if (itemSelecionado) solicitarMidia(itemSelecionado.id, 0, 0);
     }
 
-    async function reproduzirHistorico(id, temp, ep) {
-      solicitarMidia(id, temp, ep);
-    }
-
     function mostrarLoading(titulo, sub) {
       document.getElementById('loadingTitle').innerText = titulo;
       document.getElementById('loadingSub').innerText = sub;
@@ -973,7 +1006,6 @@
 
     async function solicitarMidia(id, temp, ep) {
       const item = catalogoCompleto.find(i => i.id === id);
-      if (item) salvarHistorico(item, temp, ep);
 
       if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 
@@ -986,7 +1018,7 @@
       const userId = tg?.initDataUnsafe?.user?.id;
       if (userId) {
         try {
-          const resp = await fetch(`${API_BASE_URL}/api/play?user_id=${userId}&titulo_id=${id}&tipo=${item?.tipo || 'filme'}&temporada=${temp}&episodio=${ep}`);
+          const resp = await fetch(`${API_BASE_URL}/play?user_id=${userId}&titulo_id=${id}&tipo=${item?.tipo || 'filme'}&temporada=${temp}&episodio=${ep}`);
           const dados = await resp.json();
 
           if (dados.ok) {
@@ -1005,7 +1037,7 @@
         } catch (err) {
           console.error("Erro no play:", err);
           esconderLoading();
-          alert("⚠️ Erro de conexão com o servidor.");
+          alert("⚠️️ Erro de conexão com o servidor.");
           return;
         }
       }
