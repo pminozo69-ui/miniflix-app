@@ -220,8 +220,22 @@ def init_db():
     c.close()
     conn.close()
 
-# --- SERVIDOR WEB NATIVO (API DO CATÁLOGO E DISPARO) ---
+# --- SERVIDOR WEB NATIVO (API DO CATÁLOGO E DISPARO COM SUPORTE A CORS) ---
 class ServidorWebHandler(BaseHTTPRequestHandler):
+    def _definir_headers_cors(self, status=200, content_type="application/json; charset=utf-8", length=0):
+        self.send_response(status)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+        self.send_header("Content-Type", content_type)
+        if length > 0:
+            self.send_header("Content-Length", str(length))
+        self.end_headers()
+
+    def do_OPTIONS(self):
+        """Trata requisições preflight do navegador Telegram/GitHub Pages"""
+        self._definir_headers_cors(200, "text/plain", 0)
+
     def do_GET(self):
         parsed = urlparse(self.path)
         
@@ -283,11 +297,7 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
                         requests.post(f"https://api.telegram.org/bot{TOKEN}/copyMessage", json=payload, timeout=5)
 
                         corpo = json.dumps({"ok": True}).encode("utf-8")
-                        self.send_response(200)
-                        self.send_header("Content-Type", "application/json; charset=utf-8")
-                        self.send_header("Access-Control-Allow-Origin", "*")
-                        self.send_header("Content-Length", str(len(corpo)))
-                        self.end_headers()
+                        self._definir_headers_cors(200, "application/json; charset=utf-8", len(corpo))
                         self.wfile.write(corpo)
                         return
                     
@@ -297,14 +307,10 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
                 logging.error(f"Erro na rota /api/play: {e}")
 
             corpo = json.dumps({"ok": False}).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Content-Length", str(len(corpo)))
-            self.end_headers()
+            self._definir_headers_cors(200, "application/json; charset=utf-8", len(corpo))
             self.wfile.write(corpo)
 
-        # 2. Rota do Catálogo (Ordenado pelos Adicionados Recentemente)
+        # 2. Rota do Catálogo (Ordenado por IDs recentes)
         elif parsed.path == "/api/catalogo":
             try:
                 conn = get_db_connection()
@@ -357,22 +363,16 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
                             titulos_map[t_id]["temporadas"][temp_str].append(ep_formatado)
 
                 corpo = json.dumps(list(titulos_map.values()), ensure_ascii=False).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.send_header("Content-Length", str(len(corpo)))
-                self.end_headers()
+                self._definir_headers_cors(200, "application/json; charset=utf-8", len(corpo))
                 self.wfile.write(corpo)
             except Exception as e:
-                self.send_response(500)
-                self.end_headers()
-                self.wfile.write(str(e).encode("utf-8"))
+                logging.error(f"Erro na rota /api/catalogo: {e}")
+                err_msg = str(e).encode("utf-8")
+                self._definir_headers_cors(500, "text/plain; charset=utf-8", len(err_msg))
+                self.wfile.write(err_msg)
         else:
             msg = b"Miniflix API Online!"
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain")
-            self.send_header("Content-Length", str(len(msg)))
-            self.end_headers()
+            self._definir_headers_cors(200, "text/plain", len(msg))
             self.wfile.write(msg)
 
     def log_message(self, format, *args):
