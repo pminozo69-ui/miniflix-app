@@ -439,14 +439,21 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
         c.execute("SELECT id FROM titulos WHERE nome = %s;", (nome,))
         titulo_id = c.fetchone()[0]
 
-        c.execute("""
-            INSERT INTO arquivos (titulo_id, temporada, episodio, chat_id, message_id)
-            VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT (chat_id, message_id) DO UPDATE SET
-                titulo_id = EXCLUDED.titulo_id,
-                temporada = EXCLUDED.temporada,
-                episodio = EXCLUDED.episodio;
-        """, (titulo_id, temp, ep, chat_id, message_id))
+        c.execute(
+    "SELECT id FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s;",
+    (titulo_id, temp, ep)
+)
+arq_existente = c.fetchone()
+if arq_existente:
+    c.execute(
+        "UPDATE arquivos SET chat_id = %s, message_id = %s WHERE id = %s;",
+        (chat_id, message_id, arq_existente[0])
+    )
+else:
+    c.execute(
+        "INSERT INTO arquivos (titulo_id, temporada, episodio, chat_id, message_id) VALUES (%s, %s, %s, %s, %s);",
+        (titulo_id, temp, ep, chat_id, message_id)
+    )
         
         conn.commit()
         c.close()
@@ -545,7 +552,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 (titulo_id, temp, ep)
             )
         else:
-            c.execute("SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s LIMIT 1;", (titulo_id,))
+            c.execute("SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s ORDER BY id DESC LIMIT 1;",
+    (titulo_id, temp, ep)
+)
             temp, ep = 0.0, 0.0
             
         arq = c.fetchone()
