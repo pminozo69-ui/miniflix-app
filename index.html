@@ -820,7 +820,7 @@
       if (tg?.HapticFeedback) tg.HapticFeedback.selectionChanged();
       categoriaAtiva = cat;
       document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-      event.target.classList.add('active');
+      if (event && event.target) event.target.classList.add('active');
       renderCatalogo();
     }
 
@@ -828,11 +828,11 @@
       if (tg?.HapticFeedback) tg.HapticFeedback.selectionChanged();
       generoAtivo = gen;
       document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
-      event.target.classList.add('active');
+      if (event && event.target) event.target.classList.add('active');
       renderCatalogo();
     }
 
-    // --- RENDERIZAR CARROSSEL "ADICIONADOS RECENTEMENTE" (DINÂMICO COM A CATEGORIA SELECIONADA) ---
+    // --- RENDERIZAR CARROSSEL "ADICIONADOS RECENTEMENTE" (PRESERVA A ORDEM DA API DE ATUALIZADOS) ---
     function renderAdicionadosRecentemente() {
       const sec = document.getElementById('recentesSection');
       const row = document.getElementById('recentesRow');
@@ -843,13 +843,13 @@
         return;
       }
 
-      // Filtra os itens mais recentes de acordo com o tipo/categoria ativa
+      // Filtra os itens mantendo a ordem exata da API (já ordenada por atualização)
       let listaRecentes = catalogoCompleto;
       if (categoriaAtiva !== 'todos') {
         listaRecentes = listaRecentes.filter(item => item.tipo === categoriaAtiva);
       }
 
-      // Pega até os 10 últimos cadastrados dessa categoria específica
+      // Pega os 10 mais recentes
       const recentes = listaRecentes.slice(0, 10);
 
       if (recentes.length === 0) {
@@ -875,16 +875,14 @@
       }).join('');
     }
 
-    // --- RENDERIZAR GRADE PRINCIPAL (TUDO EM ORDEM ALFABÉTICA A-Z) ---
+    // --- RENDERIZAR GRADE PRINCIPAL (ORDEM ALFABÉTICA A-Z) ---
     function renderCatalogo() {
-      // 1. Atualiza o carrossel superior baseado na categoria selecionada
       renderAdicionadosRecentemente();
 
       const termo = document.getElementById('searchInput').value.toLowerCase().trim();
       const favs = getFavoritos();
       const grid = document.getElementById('catalogGrid');
 
-      // 2. Filtra os títulos do catálogo geral
       let lista = catalogoCompleto.filter(item => {
         if (categoriaAtiva === 'favoritos' && !favs.includes(item.id)) return false;
         if (categoriaAtiva !== 'todos' && categoriaAtiva !== 'favoritos' && item.tipo !== categoriaAtiva) return false;
@@ -893,7 +891,7 @@
         return true;
       });
 
-      // 3. ORDENA EM ORDEM ALFABÉTICA (A-Z)
+      // ORDENA EM ORDEM ALFABÉTICA (A-Z) PARA A GRADE GERAL
       lista.sort((a, b) => a.titulo.localeCompare(b.titulo, 'pt-BR', { sensitivity: 'base' }));
 
       if (lista.length === 0) {
@@ -966,16 +964,33 @@
 
         epContainer.innerHTML = '';
         const temps = itemSelecionado.temporadas || {};
-        for (const [tNum, eps] of Object.entries(temps)) {
-          const rotuloTemp = tNum === '0' ? '⭐ Especiais' : `Temporada ${tNum}`;
-          epContainer.innerHTML += `<div style="font-size: 12px; font-weight: 700; margin: 8px 0 4px; color: #8e95a5;">${rotuloTemp}</div>`;
+
+        // ORDENAÇÃO NUMÉRICA DAS TEMPORADAS (CORRIGE AS PARCIAIS COMO 1, 1.5, 2)
+        const seasonKeys = Object.keys(temps).sort((a, b) => parseFloat(a) - parseFloat(b));
+
+        seasonKeys.forEach(tNum => {
+          const eps = (temps[tNum] || []).slice();
+          // ORDENAÇÃO NUMÉRICA DOS EPISÓDIOS
+          eps.sort((a, b) => parseFloat(a) - parseFloat(b));
+
+          const valNum = parseFloat(tNum);
+          const rotuloTemp = valNum === 0 ? '⭐ Especiais' : `Temporada ${tNum}`;
+          
+          epContainer.innerHTML += `<div style="font-size: 12px; font-weight: 700; margin: 12px 0 6px; color: #8e95a5;">${rotuloTemp}</div>`;
+          
           let gridHtml = '<div class="ep-grid">';
           eps.forEach(epNum => {
-            gridHtml += `<button class="ep-btn" onclick="solicitarMidia(${itemSelecionado.id}, ${tNum}, ${epNum})">EP ${epNum.toString().padStart(2, '0')}</button>`;
+            const epVal = parseFloat(epNum);
+            const epLabel = Number.isInteger(epVal) 
+              ? epVal.toString().padStart(2, '0') 
+              : epVal;
+
+            gridHtml += `<button class="ep-btn" onclick="solicitarMidia(${itemSelecionado.id}, ${tNum}, ${epNum})">EP ${epLabel}</button>`;
           });
           gridHtml += '</div>';
+          
           epContainer.innerHTML += gridHtml;
-        }
+        });
       }
 
       document.getElementById('modalOverlay').classList.add('active');
@@ -1027,9 +1042,11 @@
 
       if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 
+      const epDisplay = Number.isInteger(parseFloat(ep)) ? ep.toString().padStart(2, '0') : ep;
+
       const subTexto = (item?.tipo === 'filme' || (temp === 0 && ep === 0))
         ? `Enviando "${item?.titulo || 'o filme'}" para o seu chat...`
-        : `Enviando Temp ${temp} • Ep ${ep.toString().padStart(2, '0')} para o seu chat...`;
+        : `Enviando Temp ${temp} • Ep ${epDisplay} para o seu chat...`;
 
       mostrarLoading("🍿 Carregando...", subTexto);
 
@@ -1055,7 +1072,7 @@
         } catch (err) {
           console.error("Erro no play:", err);
           esconderLoading();
-          alert("⚠️️ Erro de conexão com o servidor.");
+          alert("⚠ Erro de conexão com o servidor.");
           return;
         }
       }
