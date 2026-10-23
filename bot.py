@@ -156,7 +156,7 @@ def buscar_metadados_tmdb(nome_titulo: str, categoria: str):
         logging.error(f"Erro ao consultar TMDB: {e}")
         return None, None, None, None, None, [], None
 
-# --- BANCO DE DADOS (SUPABASE COM COLUNA CRIADO_EM E MIGRAÇÃO) ---
+# --- BANCO DE DADOS (SUPABASE COM MIGRAÇÃO E COLUNA ATUALIZADO_EM) ---
 def init_db():
     conn = get_db_connection()
     c = conn.cursor()
@@ -174,7 +174,8 @@ def init_db():
             generos TEXT,
             trailer_key TEXT,
             audio TEXT,
-            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
     c.execute("""
@@ -187,7 +188,8 @@ def init_db():
         ADD COLUMN IF NOT EXISTS generos TEXT,
         ADD COLUMN IF NOT EXISTS trailer_key TEXT,
         ADD COLUMN IF NOT EXISTS audio TEXT,
-        ADD COLUMN IF NOT EXISTS criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+        ADD COLUMN IF NOT EXISTS criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
     """)
     c.execute("""
         CREATE TABLE IF NOT EXISTS arquivos (
@@ -254,10 +256,10 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
                     c = conn.cursor()
                     
                     if tipo == "filme" or (temp == 0.0 and ep == 0.0):
-                        c.execute("SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s LIMIT 1;", (titulo_id,))
+                        c.execute("SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s ORDER BY id DESC LIMIT 1;", (titulo_id,))
                     else:
                         c.execute(
-                            "SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s LIMIT 1;",
+                            "SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s ORDER BY id DESC LIMIT 1;",
                             (titulo_id, temp, ep)
                         )
                     
@@ -310,7 +312,7 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
             self._definir_headers_cors(200, "application/json; charset=utf-8", len(corpo))
             self.wfile.write(corpo)
 
-        # 2. Rota do Catálogo (Ordenado por IDs recentes)
+        # 2. Rota do Catálogo (Ordenado pelos atualizados/adicionados mais recentemente)
         elif parsed.path == "/api/catalogo":
             try:
                 conn = get_db_connection()
@@ -321,7 +323,7 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
                            a.temporada, a.episodio, t.criado_em
                     FROM titulos t
                     LEFT JOIN arquivos a ON t.id = a.titulo_id
-                    ORDER BY t.id DESC, a.temporada ASC, a.episodio ASC;
+                    ORDER BY COALESCE(t.atualizado_em, t.criado_em) DESC, a.temporada ASC, a.episodio ASC;
                 """)
                 linhas = c.fetchall()
                 c.close()
@@ -384,10 +386,10 @@ def iniciar_servidor_web():
     logging.info(f"--> [API + WEB] Servidor HTTP rodando na porta {porta}")
     httpd.serve_forever()
 
-# --- INGESTÃO AUTOMÁTICA ---
+# --- INGESTÃO AUTOMÁTICA COM NOTIFICAÇÃO E RENOVAÇÃO DE DATA ---
 def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int):
     if not texto_completo.startswith("#"):
-        return False
+        return False, False, {}
 
     texto_lower = texto_completo.lower()
     
@@ -418,12 +420,16 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
         nome = re.sub(r"#\w+", "", nome_bruto).strip().title()
         nome_busca = normalizar(nome)
 
+        c.execute("SELECT id FROM titulos WHERE nome = %s;", (nome,))
+        res_existente = c.fetchone()
+        e_novo_titulo = res_existente is None
+
         poster_url, sinopse, ano, nota, duracao, generos, trailer_key = buscar_metadados_tmdb(nome, cat)
         generos_json = json.dumps(generos, ensure_ascii=False) if generos else "[]"
 
         c.execute("""
-            INSERT INTO titulos (categoria, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos, trailer_key, audio)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO titulos (categoria, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos, trailer_key, audio, atualizado_em)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
             ON CONFLICT (nome) DO UPDATE SET 
                 categoria = EXCLUDED.categoria,
                 poster_url = COALESCE(EXCLUDED.poster_url, titulos.poster_url),
@@ -433,33 +439,41 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
                 duracao = COALESCE(EXCLUDED.duracao, titulos.duracao),
                 generos = COALESCE(EXCLUDED.generos, titulos.generos),
                 trailer_key = COALESCE(EXCLUDED.trailer_key, titulos.trailer_key),
-                audio = EXCLUDED.audio;
+                audio = EXCLUDED.audio,
+                atualizado_em = CURRENT_TIMESTAMP;
         """, (cat, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos_json, trailer_key, audio))
 
         c.execute("SELECT id FROM titulos WHERE nome = %s;", (nome,))
         titulo_id = c.fetchone()[0]
 
         c.execute(
-    "SELECT id FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s;",
-    (titulo_id, temp, ep)
-)
-arq_existente = c.fetchone()
-if arq_existente:
-    c.execute(
-        "UPDATE arquivos SET chat_id = %s, message_id = %s WHERE id = %s;",
-        (chat_id, message_id, arq_existente[0])
-    )
-else:
-    c.execute(
-        "INSERT INTO arquivos (titulo_id, temporada, episodio, chat_id, message_id) VALUES (%s, %s, %s, %s, %s);",
-        (titulo_id, temp, ep, chat_id, message_id)
-    )
+            "SELECT id FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s;",
+            (titulo_id, temp, ep)
+        )
+        arq_existente = c.fetchone()
+        if arq_existente:
+            c.execute(
+                "UPDATE arquivos SET chat_id = %s, message_id = %s WHERE id = %s;",
+                (chat_id, message_id, arq_existente[0])
+            )
+        else:
+            c.execute(
+                "INSERT INTO arquivos (titulo_id, temporada, episodio, chat_id, message_id) VALUES (%s, %s, %s, %s, %s);",
+                (titulo_id, temp, ep, chat_id, message_id)
+            )
         
         conn.commit()
         c.close()
         conn.close()
         print(f"--> [TMDB + SUPABASE] {nome} (S{temp}E{ep}) [{audio}] salvo/atualizado.")
-        return True
+        
+        info = {
+            "nome": nome,
+            "categoria": cat,
+            "temporada": temp,
+            "episodio": ep
+        }
+        return True, e_novo_titulo, info
 
     elif match_filme:
         cat = "filme"
@@ -467,12 +481,16 @@ else:
         nome = re.sub(r"#\w+", "", nome_bruto).strip().title()
         nome_busca = normalizar(nome)
 
+        c.execute("SELECT id FROM titulos WHERE nome = %s;", (nome,))
+        res_existente = c.fetchone()
+        e_novo_titulo = res_existente is None
+
         poster_url, sinopse, ano, nota, duracao, generos, trailer_key = buscar_metadados_tmdb(nome, cat)
         generos_json = json.dumps(generos, ensure_ascii=False) if generos else "[]"
 
         c.execute("""
-            INSERT INTO titulos (categoria, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos, trailer_key, audio)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO titulos (categoria, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos, trailer_key, audio, atualizado_em)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
             ON CONFLICT (nome) DO UPDATE SET 
                 categoria = EXCLUDED.categoria,
                 poster_url = COALESCE(EXCLUDED.poster_url, titulos.poster_url),
@@ -482,30 +500,42 @@ else:
                 duracao = COALESCE(EXCLUDED.duracao, titulos.duracao),
                 generos = COALESCE(EXCLUDED.generos, titulos.generos),
                 trailer_key = COALESCE(EXCLUDED.trailer_key, titulos.trailer_key),
-                audio = EXCLUDED.audio;
+                audio = EXCLUDED.audio,
+                atualizado_em = CURRENT_TIMESTAMP;
         """, (cat, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos_json, trailer_key, audio))
 
         c.execute("SELECT id FROM titulos WHERE nome = %s;", (nome,))
         titulo_id = c.fetchone()[0]
 
-        c.execute("""
-            INSERT INTO arquivos (titulo_id, temporada, episodio, chat_id, message_id)
-            VALUES (%s, 0.0, 0.0, %s, %s)
-            ON CONFLICT (chat_id, message_id) DO UPDATE SET
-                titulo_id = EXCLUDED.titulo_id,
-                temporada = 0.0,
-                episodio = 0.0;
-        """, (titulo_id, chat_id, message_id))
+        c.execute("SELECT id FROM arquivos WHERE titulo_id = %s;", (titulo_id,))
+        arq_existente = c.fetchone()
+        if arq_existente:
+            c.execute(
+                "UPDATE arquivos SET chat_id = %s, message_id = %s WHERE id = %s;",
+                (chat_id, message_id, arq_existente[0])
+            )
+        else:
+            c.execute(
+                "INSERT INTO arquivos (titulo_id, temporada, episodio, chat_id, message_id) VALUES (%s, 0.0, 0.0, %s, %s);",
+                (titulo_id, chat_id, message_id)
+            )
         
         conn.commit()
         c.close()
         conn.close()
         print(f"--> [TMDB + SUPABASE] Filme {nome} ({ano}) [{audio}] salvo/atualizado.")
-        return True
+        
+        info = {
+            "nome": nome,
+            "categoria": cat,
+            "temporada": 0.0,
+            "episodio": 0.0
+        }
+        return True, e_novo_titulo, info
 
     c.close()
     conn.close()
-    return False
+    return False, False, {}
 
 async def processar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
@@ -516,7 +546,25 @@ async def processar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not texto.startswith("#"):
         return
 
-    salvar_ou_atualizar_midia(texto, msg.chat_id, msg.message_id)
+    sucesso, e_novo_titulo, info = salvar_ou_atualizar_midia(texto, msg.chat_id, msg.message_id)
+    
+    if sucesso:
+        if e_novo_titulo:
+            aviso = f"✨ **Novo Título Adicionado!**\n🎬 *{info['nome']}* já está disponível no catálogo."
+        else:
+            if info['categoria'] == 'filme':
+                aviso = f"🔄 **Filme Atualizado!**\n🎬 *{info['nome']}* teve seus arquivos atualizados no Miniflix."
+            else:
+                temp_label = formatar_numero(info['temporada'])
+                ep_label = formatar_numero(info['episodio'])
+                aviso = f"🔄 **Nova Atualização!**\n📺 *{info['nome']}* (S{temp_label}E{ep_label}) adicionado e movido ao topo dos Recentemente Adicionados."
+            
+        await context.bot.send_message(
+            chat_id=msg.chat_id,
+            text=aviso,
+            reply_to_message_id=msg.message_id,
+            parse_mode="Markdown"
+        )
 
 async def processar_edicao(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.edited_channel_post or update.edited_message
@@ -548,13 +596,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             temp = float(partes[2])
             ep = float(partes[3])
             c.execute(
-                "SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s LIMIT 1;",
+                "SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s ORDER BY id DESC LIMIT 1;",
                 (titulo_id, temp, ep)
             )
         else:
-            c.execute("SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s ORDER BY id DESC LIMIT 1;",
-    (titulo_id, temp, ep)
-)
+            c.execute("SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s ORDER BY id DESC LIMIT 1;", (titulo_id,))
             temp, ep = 0.0, 0.0
             
         arq = c.fetchone()
@@ -664,7 +710,7 @@ async def tratar_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         titulo, cat = res
 
         if cat == "filme":
-            c.execute("SELECT chat_id, message_id FROM arquivos WHERE titulo_id = %s;", (titulo_id,))
+            c.execute("SELECT chat_id, message_id FROM arquivos WHERE titulo_id = %s ORDER BY id DESC LIMIT 1;", (titulo_id,))
             arq = c.fetchone()
             if arq:
                 await context.bot.copy_message(chat_id=query.message.chat_id, from_chat_id=arq[0], message_id=arq[1])
