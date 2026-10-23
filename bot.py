@@ -51,14 +51,12 @@ def normalizar(texto: str) -> str:
     return unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode("utf-8").lower().strip()
 
 def formatar_numero(valor: float) -> str:
-    """Converte 9.0 em '09' e 9.5 em '9.5'."""
     val = float(valor)
     if val.is_integer():
         return f"{int(val):02d}"
     return f"{val:.1f}".rstrip('0').rstrip('.')
 
 def formatar_temporada(valor: float) -> str:
-    """Converte 0 em '⭐ Especiais', 1.0 em 'Temporada 1' e 1.5 em 'Temporada 1.5'."""
     val = float(valor)
     if val == 0:
         return "⭐ Especiais"
@@ -67,7 +65,6 @@ def formatar_temporada(valor: float) -> str:
     return f"Temporada {val:.1f}".rstrip('0').rstrip('.')
 
 def formatar_valor_json(valor: float):
-    """Retorna int se for inteiro ou float se tiver decimais para compatibilidade JSON."""
     val = float(valor)
     return int(val) if val.is_integer() else round(val, 1)
 
@@ -156,7 +153,7 @@ def buscar_metadados_tmdb(nome_titulo: str, categoria: str):
         logging.error(f"Erro ao consultar TMDB: {e}")
         return None, None, None, None, None, [], None
 
-# --- BANCO DE DADOS (SUPABASE COM MIGRAÇÃO E COLUNA ATUALIZADO_EM) ---
+# --- BANCO DE DADOS ---
 def init_db():
     conn = get_db_connection()
     c = conn.cursor()
@@ -174,6 +171,7 @@ def init_db():
             generos TEXT,
             trailer_key TEXT,
             audio TEXT,
+            selo TEXT DEFAULT 'NOVO',
             criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -188,6 +186,7 @@ def init_db():
         ADD COLUMN IF NOT EXISTS generos TEXT,
         ADD COLUMN IF NOT EXISTS trailer_key TEXT,
         ADD COLUMN IF NOT EXISTS audio TEXT,
+        ADD COLUMN IF NOT EXISTS selo TEXT DEFAULT 'NOVO',
         ADD COLUMN IF NOT EXISTS criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
     """)
@@ -222,7 +221,7 @@ def init_db():
     c.close()
     conn.close()
 
-# --- SERVIDOR WEB NATIVO (API DO CATÁLOGO E DISPARO COM SUPORTE A CORS) ---
+# --- SERVIDOR WEB NATIVO ---
 class ServidorWebHandler(BaseHTTPRequestHandler):
     def _definir_headers_cors(self, status=200, content_type="application/json; charset=utf-8", length=0):
         self.send_response(status)
@@ -235,13 +234,11 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_OPTIONS(self):
-        """Trata requisições preflight do navegador Telegram/GitHub Pages"""
         self._definir_headers_cors(200, "text/plain", 0)
 
     def do_GET(self):
         parsed = urlparse(self.path)
         
-        # 1. Rota de disparo de mídia
         if parsed.path == "/api/play":
             try:
                 params = parse_qs(parsed.query)
@@ -312,7 +309,6 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
             self._definir_headers_cors(200, "application/json; charset=utf-8", len(corpo))
             self.wfile.write(corpo)
 
-        # 2. Rota do Catálogo (Ordenado pelos atualizados/adicionados mais recentemente)
         elif parsed.path == "/api/catalogo":
             try:
                 conn = get_db_connection()
@@ -320,7 +316,7 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
                 c.execute("""
                     SELECT t.id, t.categoria, t.nome, t.poster_url, t.sinopse, t.ano,
                            t.nota, t.duracao, t.generos, t.trailer_key, t.audio,
-                           a.temporada, a.episodio, t.criado_em
+                           a.temporada, a.episodio, COALESCE(t.selo, 'NOVO')
                     FROM titulos t
                     LEFT JOIN arquivos a ON t.id = a.titulo_id
                     ORDER BY COALESCE(t.atualizado_em, t.criado_em) DESC, a.temporada ASC, a.episodio ASC;
@@ -331,7 +327,7 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
 
                 titulos_map = {}
                 for r in linhas:
-                    t_id, cat, nome, poster, sinopse, ano, nota, duracao, generos_raw, trailer_key, audio, temp, ep, criado_em = r
+                    t_id, cat, nome, poster, sinopse, ano, nota, duracao, generos_raw, trailer_key, audio, temp, ep, selo_val = r
                     
                     if t_id not in titulos_map:
                         generos_list = []
@@ -353,6 +349,7 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
                             "audio": audio or "Dublado",
                             "sinopse": sinopse or "Sem sinopse cadastrada.",
                             "img": poster or "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=300",
+                            "selo": selo_val,
                             "temporadas": {}
                         }
                     
@@ -386,7 +383,7 @@ def iniciar_servidor_web():
     logging.info(f"--> [API + WEB] Servidor HTTP rodando na porta {porta}")
     httpd.serve_forever()
 
-# --- INGESTÃO AUTOMÁTICA COM NOTIFICAÇÃO E RENOVAÇÃO DE DATA ---
+# --- INGESTÃO AUTOMÁTICA ---
 def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int):
     if not texto_completo.startswith("#"):
         return False, False, {}
@@ -424,12 +421,14 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
         res_existente = c.fetchone()
         e_novo_titulo = res_existente is None
 
+        selo_valor = "NOVO" if e_novo_titulo else "NOVA TEMP"
+
         poster_url, sinopse, ano, nota, duracao, generos, trailer_key = buscar_metadados_tmdb(nome, cat)
         generos_json = json.dumps(generos, ensure_ascii=False) if generos else "[]"
 
         c.execute("""
-            INSERT INTO titulos (categoria, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos, trailer_key, audio, atualizado_em)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+            INSERT INTO titulos (categoria, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos, trailer_key, audio, selo, atualizado_em)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
             ON CONFLICT (nome) DO UPDATE SET 
                 categoria = EXCLUDED.categoria,
                 poster_url = COALESCE(EXCLUDED.poster_url, titulos.poster_url),
@@ -440,8 +439,9 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
                 generos = COALESCE(EXCLUDED.generos, titulos.generos),
                 trailer_key = COALESCE(EXCLUDED.trailer_key, titulos.trailer_key),
                 audio = EXCLUDED.audio,
+                selo = EXCLUDED.selo,
                 atualizado_em = CURRENT_TIMESTAMP;
-        """, (cat, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos_json, trailer_key, audio))
+        """, (cat, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos_json, trailer_key, audio, selo_valor))
 
         c.execute("SELECT id FROM titulos WHERE nome = %s;", (nome,))
         titulo_id = c.fetchone()[0]
@@ -465,7 +465,7 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
         conn.commit()
         c.close()
         conn.close()
-        print(f"--> [TMDB + SUPABASE] {nome} (S{temp}E{ep}) [{audio}] salvo/atualizado.")
+        print(f"--> [TMDB + SUPABASE] {nome} (S{temp}E{ep}) [{audio}] salvo com selo '{selo_valor}'.")
         
         info = {
             "nome": nome,
@@ -485,12 +485,14 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
         res_existente = c.fetchone()
         e_novo_titulo = res_existente is None
 
+        selo_valor = "NOVO" if e_novo_titulo else "ATUALIZADO"
+
         poster_url, sinopse, ano, nota, duracao, generos, trailer_key = buscar_metadados_tmdb(nome, cat)
         generos_json = json.dumps(generos, ensure_ascii=False) if generos else "[]"
 
         c.execute("""
-            INSERT INTO titulos (categoria, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos, trailer_key, audio, atualizado_em)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+            INSERT INTO titulos (categoria, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos, trailer_key, audio, selo, atualizado_em)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
             ON CONFLICT (nome) DO UPDATE SET 
                 categoria = EXCLUDED.categoria,
                 poster_url = COALESCE(EXCLUDED.poster_url, titulos.poster_url),
@@ -501,8 +503,9 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
                 generos = COALESCE(EXCLUDED.generos, titulos.generos),
                 trailer_key = COALESCE(EXCLUDED.trailer_key, titulos.trailer_key),
                 audio = EXCLUDED.audio,
+                selo = EXCLUDED.selo,
                 atualizado_em = CURRENT_TIMESTAMP;
-        """, (cat, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos_json, trailer_key, audio))
+        """, (cat, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos_json, trailer_key, audio, selo_valor))
 
         c.execute("SELECT id FROM titulos WHERE nome = %s;", (nome,))
         titulo_id = c.fetchone()[0]
@@ -523,7 +526,7 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
         conn.commit()
         c.close()
         conn.close()
-        print(f"--> [TMDB + SUPABASE] Filme {nome} ({ano}) [{audio}] salvo/atualizado.")
+        print(f"--> [TMDB + SUPABASE] Filme {nome} ({ano}) [{audio}] salvo com selo '{selo_valor}'.")
         
         info = {
             "nome": nome,
