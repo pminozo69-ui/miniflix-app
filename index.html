@@ -1,1090 +1,875 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Miniflix</title>
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <style>
-    :root {
-      --bg: #0d0f14;
-      --card-bg: #161a23;
-      --card-hover: #202634;
-      --primary: #e50914;
-      --primary-hover: #f40612;
-      --text: #ffffff;
-      --text-muted: #8e95a5;
-      --gold: #ffc107;
-      --badge-dub: #2563eb;
-      --badge-leg: #059669;
-      --border: rgba(255, 255, 255, 0.08);
-    }
-
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      -webkit-tap-highlight-color: transparent;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    }
-
-    body {
-      background-color: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      padding-bottom: 40px;
-    }
-
-    /* ESCONDER BARRA DE ROLAGEM MANTENDO SCROLL */
-    .scrollbar-hide {
-      -webkit-overflow-scrolling: touch;
-      -ms-overflow-style: none;
-      scrollbar-width: none;
-    }
-    .scrollbar-hide::-webkit-scrollbar {
-      display: none;
-      width: 0;
-      height: 0;
-    }
-
-    /* HEADER FIXO */
-    header {
-      position: sticky;
-      top: 0;
-      z-index: 100;
-      background: rgba(13, 15, 20, 0.95);
-      backdrop-filter: blur(12px);
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .brand {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 12px;
-    }
-
-    .brand h1 {
-      font-size: 22px;
-      font-weight: 800;
-      color: var(--primary);
-      letter-spacing: -0.5px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .search-box {
-      position: relative;
-      margin-bottom: 10px;
-    }
-
-    .search-box input {
-      width: 100%;
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      padding: 10px 14px 10px 36px;
-      border-radius: 10px;
-      color: #fff;
-      font-size: 14px;
-      outline: none;
-      transition: border-color 0.2s;
-    }
-
-    .search-box input:focus {
-      border-color: var(--primary);
-    }
-
-    .search-box svg {
-      position: absolute;
-      left: 12px;
-      top: 50%;
-      transform: translateY(-50%);
-      width: 16px;
-      height: 16px;
-      fill: var(--text-muted);
-    }
-
-    /* NAVEGAÇÃO DE CATEGORIAS */
-    .tabs-nav {
-      display: flex;
-      gap: 8px;
-      overflow-x: auto;
-      padding-bottom: 4px;
-    }
-
-    .tab-btn {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      color: var(--text-muted);
-      padding: 6px 14px;
-      border-radius: 20px;
-      font-size: 13px;
-      font-weight: 600;
-      white-space: nowrap;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .tab-btn.active {
-      background: var(--primary);
-      color: #fff;
-      border-color: var(--primary);
-    }
-
-    /* CHIPS DE GÊNEROS */
-    .chips-container {
-      display: flex;
-      gap: 6px;
-      overflow-x: auto;
-      padding: 10px 16px 4px 16px;
-    }
-
-    .chip {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid var(--border);
-      color: var(--text-muted);
-      padding: 4px 10px;
-      border-radius: 6px;
-      font-size: 11px;
-      font-weight: 600;
-      white-space: nowrap;
-      cursor: pointer;
-    }
-
-    .chip.active {
-      background: rgba(229, 9, 20, 0.15);
-      border-color: var(--primary);
-      color: #ff6b6b;
-    }
-
-    /* SEÇÃO ADICIONADOS RECENTEMENTE */
-    .section-title {
-      font-size: 15px;
-      font-weight: 700;
-      padding: 16px 16px 8px;
-      color: #fff;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .recentes-row {
-      display: flex;
-      gap: 12px;
-      overflow-x: auto;
-      padding: 0 16px 12px;
-    }
-
-    .recentes-card {
-      min-width: 120px;
-      max-width: 120px;
-      background: var(--card-bg);
-      border-radius: 10px;
-      overflow: hidden;
-      border: 1px solid var(--border);
-      cursor: pointer;
-      flex-shrink: 0;
-      transition: transform 0.2s;
-    }
-
-    .recentes-card:active {
-      transform: scale(0.96);
-    }
-
-    .recentes-poster-box {
-      position: relative;
-      width: 100%;
-      padding-top: 150%;
-      background: #111;
-    }
-
-    .recentes-poster-box img {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-
-    .badge-novo {
-      position: absolute;
-      top: 6px;
-      left: 6px;
-      background: var(--primary);
-      color: #fff;
-      font-size: 8px;
-      font-weight: 800;
-      padding: 2px 5px;
-      border-radius: 4px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.5);
-    }
-
-    .badge-nota {
-      position: absolute;
-      bottom: 6px;
-      right: 6px;
-      background: rgba(0, 0, 0, 0.8);
-      backdrop-filter: blur(4px);
-      color: var(--gold);
-      font-size: 10px;
-      font-weight: 700;
-      padding: 2px 5px;
-      border-radius: 4px;
-    }
-
-    .recentes-card-body {
-      padding: 8px;
-    }
-
-    .recentes-card-title {
-      font-size: 12px;
-      font-weight: 700;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      color: #fff;
-    }
-
-    .recentes-card-sub {
-      font-size: 10px;
-      color: var(--text-muted);
-      margin-top: 2px;
-      text-transform: capitalize;
-    }
-
-    /* GRADE PRINCIPAL */
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 10px;
-      padding: 12px 16px;
-    }
-
-    @media (max-width: 360px) {
-      .grid { grid-template-columns: repeat(2, 1fr); }
-    }
-
-    .card {
-      background: var(--card-bg);
-      border-radius: 10px;
-      overflow: hidden;
-      border: 1px solid var(--border);
-      position: relative;
-      cursor: pointer;
-      transition: transform 0.2s;
-    }
-
-    .card:active {
-      transform: scale(0.97);
-    }
-
-    .poster-box {
-      position: relative;
-      width: 100%;
-      padding-top: 150%;
-      background: #111;
-    }
-
-    .poster-box img {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-
-    /* BADGES */
-    .badge-audio {
-      position: absolute;
-      top: 6px;
-      right: 6px;
-      font-size: 9px;
-      font-weight: 800;
-      padding: 2px 4px;
-      border-radius: 4px;
-      text-transform: uppercase;
-      color: #fff;
-    }
-    .badge-audio.dub { background: var(--badge-dub); }
-    .badge-audio.leg { background: var(--badge-leg); }
-
-    .card-fav-btn {
-      position: absolute;
-      bottom: 6px;
-      right: 6px;
-      background: rgba(0, 0, 0, 0.65);
-      border-radius: 50%;
-      width: 26px;
-      height: 26px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border: none;
-      cursor: pointer;
-      font-size: 13px;
-    }
-
-    .card-info {
-      padding: 8px;
-    }
-
-    .card-title {
-      font-size: 12px;
-      font-weight: 700;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      color: #fff;
-    }
-
-    .card-meta {
-      display: flex;
-      justify-content: space-between;
-      font-size: 10px;
-      color: var(--text-muted);
-      margin-top: 3px;
-    }
-
-    /* MODAL DE DETALHES */
-    .modal-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.85);
-      backdrop-filter: blur(8px);
-      z-index: 200;
-      display: none;
-      align-items: flex-end;
-    }
-
-    .modal-overlay.active {
-      display: flex;
-    }
-
-    .modal-sheet {
-      background: #141720;
-      width: 100%;
-      max-height: 88vh;
-      border-radius: 20px 20px 0 0;
-      overflow-y: auto;
-      border-top: 1px solid var(--border);
-      padding: 20px 16px 36px;
-      position: relative;
-    }
-
-    .modal-close-bar {
-      width: 40px;
-      height: 4px;
-      background: rgba(255, 255, 255, 0.2);
-      border-radius: 2px;
-      margin: 0 auto 16px;
-    }
-
-    .modal-header {
-      display: flex;
-      gap: 14px;
-      margin-bottom: 16px;
-    }
-
-    .modal-poster {
-      width: 95px;
-      height: 140px;
-      border-radius: 8px;
-      object-fit: cover;
-      flex-shrink: 0;
-    }
-
-    .modal-header-info {
-      flex: 1;
-    }
-
-    .modal-title {
-      font-size: 18px;
-      font-weight: 800;
-      line-height: 1.2;
-      margin-bottom: 6px;
-    }
-
-    .modal-meta-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      font-size: 12px;
-      font-weight: 600;
-      margin-bottom: 8px;
-      align-items: center;
-    }
-
-    .modal-rating {
-      color: var(--gold);
-      display: flex;
-      align-items: center;
-      gap: 3px;
-    }
-
-    .modal-genres {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-      margin-top: 4px;
-    }
-
-    .genre-tag {
-      background: rgba(255, 255, 255, 0.08);
-      padding: 2px 7px;
-      border-radius: 4px;
-      font-size: 10px;
-      color: var(--text-muted);
-    }
-
-    .modal-actions {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 16px;
-    }
-
-    .btn-main {
-      flex: 1;
-      background: var(--primary);
-      color: #fff;
-      border: none;
-      padding: 12px;
-      border-radius: 10px;
-      font-size: 14px;
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      cursor: pointer;
-    }
-
-    .btn-trailer {
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid var(--border);
-      color: #fff;
-      padding: 12px 14px;
-      border-radius: 10px;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .btn-fav {
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid var(--border);
-      color: #fff;
-      padding: 12px 14px;
-      border-radius: 10px;
-      font-size: 14px;
-      cursor: pointer;
-    }
-
-    .modal-synopsis {
-      font-size: 13px;
-      color: #bbb;
-      line-height: 1.5;
-      margin-bottom: 20px;
-    }
-
-    /* EPISÓDIOS */
-    .episodes-sec h3 {
-      font-size: 14px;
-      margin-bottom: 10px;
-      font-weight: 700;
-    }
-
-    .ep-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 8px;
-      margin-bottom: 12px;
-    }
-
-    .ep-btn {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      color: #fff;
-      padding: 10px 0;
-      border-radius: 8px;
-      font-size: 13px;
-      font-weight: 700;
-      cursor: pointer;
-    }
-    .ep-btn:active { background: var(--primary); }
-
-    /* MODAL DE TRAILER */
-    .trailer-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.95);
-      z-index: 300;
-      display: none;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 16px;
-    }
-
-    .trailer-overlay.active { display: flex; }
-
-    .trailer-box {
-      width: 100%;
-      max-width: 600px;
-      aspect-ratio: 16/9;
-      position: relative;
-    }
-
-    .trailer-box iframe {
-      width: 100%;
-      height: 100%;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-    }
-
-    .btn-close-trailer {
-      margin-top: 16px;
-      background: rgba(255, 255, 255, 0.15);
-      border: none;
-      color: #fff;
-      padding: 8px 20px;
-      border-radius: 20px;
-      font-weight: 600;
-      cursor: pointer;
-    }
-
-    .empty-state {
-      grid-column: 1 / -1;
-      text-align: center;
-      padding: 40px 16px;
-      color: var(--text-muted);
-      font-size: 14px;
-    }
-
-    /* TELA DE CARREGAMENTO */
-    .loading-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(13, 15, 20, 0.96);
-      backdrop-filter: blur(12px);
-      z-index: 500;
-      display: none;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-      padding: 24px;
-      animation: fadeIn 0.2s ease;
-    }
-
-    .loading-overlay.active {
-      display: flex;
-    }
-
-    .loader-box {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      max-width: 320px;
-    }
-
-    .loader-spinner {
-      width: 56px;
-      height: 56px;
-      border: 4px solid rgba(229, 9, 20, 0.15);
-      border-top-color: var(--primary);
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      margin-bottom: 20px;
-      box-shadow: 0 0 20px rgba(229, 9, 20, 0.3);
-    }
-
-    .loading-title {
-      font-size: 18px;
-      font-weight: 800;
-      color: #fff;
-      margin-bottom: 8px;
-    }
-
-    .loading-sub {
-      font-size: 13px;
-      color: var(--text-muted);
-      line-height: 1.4;
-    }
-
-    .loading-badge {
-      margin-top: 14px;
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid var(--border);
-      color: #ff6b6b;
-      font-size: 11px;
-      font-weight: 700;
-      padding: 4px 12px;
-      border-radius: 20px;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; transform: scale(0.98); }
-      to { opacity: 1; transform: scale(1); }
-    }
-  </style>
-</head>
-<body>
-
-  <!-- HEADER -->
-  <header>
-    <div class="brand">
-      <h1>🍿 Miniflix</h1>
-      <div id="statusBadge" style="font-size: 11px; color: var(--text-muted);">Carregando...</div>
-    </div>
-
-    <div class="search-box">
-      <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-      <input type="text" id="searchInput" placeholder="Buscar filmes, séries, animes..." />
-    </div>
-
-    <!-- TABS DE CATEGORIA -->
-    <div class="tabs-nav scrollbar-hide">
-      <button class="tab-btn active" onclick="filtrarCategoria('todos')">🔥 Todos</button>
-      <button class="tab-btn" onclick="filtrarCategoria('filme')">🎬 Filmes</button>
-      <button class="tab-btn" onclick="filtrarCategoria('serie')">📺 Séries</button>
-      <button class="tab-btn" onclick="filtrarCategoria('anime')">⛩️ Animes</button>
-      <button class="tab-btn" onclick="filtrarCategoria('cartoon')">🎨 Cartoons</button>
-      <button class="tab-btn" onclick="filtrarCategoria('favoritos')">❤️ Minha Lista</button>
-    </div>
-  </header>
-
-  <!-- CHIPS DE GÊNERO -->
-  <div class="chips-container scrollbar-hide" id="genresChips"></div>
-
-  <!-- SEÇÃO: ADICIONADOS RECENTEMENTE (FILTRA CONFORME A CATEGORIA ATIVA) -->
-  <div id="recentesSection" style="display: none;">
-    <div class="section-title">🔥 Adicionados Recentemente</div>
-    <div class="recentes-row scrollbar-hide" id="recentesRow"></div>
-  </div>
-
-  <!-- GRADE DE TÍTULOS (ORDEM ALFABÉTICA) -->
-  <div class="grid" id="catalogGrid">
-    <div class="empty-state">Sincronizando catálogo...</div>
-  </div>
-
-  <!-- MODAL DE DETALHES -->
-  <div class="modal-overlay" id="modalOverlay" onclick="fecharModal(event)">
-    <div class="modal-sheet" onclick="event.stopPropagation()">
-      <div class="modal-close-bar"></div>
-      
-      <div class="modal-header">
-        <img id="modalPoster" class="modal-poster" src="" alt="Poster" />
-        <div class="modal-header-info">
-          <div class="modal-title" id="modalTitle">Nome do Filme</div>
-          <div class="modal-meta-row">
-            <span class="modal-rating" id="modalRating">⭐ 8.5</span>
-            <span id="modalYear">2024</span>
-            <span id="modalDuration">⏱️ 1h 45m</span>
-            <span id="modalAudio" style="color: #60a5fa;">🔊 Dublado</span>
-          </div>
-          <div class="modal-genres" id="modalGenres"></div>
-        </div>
-      </div>
-
-      <div class="modal-actions">
-        <button class="btn-main" id="modalPlayBtn" onclick="executarPlayPrincipal()">
-          ▶️ Assistir Agora
-        </button>
-        <button class="btn-trailer" id="modalTrailerBtn" onclick="abrirTrailer()">
-          🎬 Trailer
-        </button>
-        <button class="btn-fav" id="modalFavBtn" onclick="toggleFavoritoModal()">
-          🤍
-        </button>
-      </div>
-
-      <div class="modal-synopsis" id="modalSynopsis">
-        Sinopse do filme carregada diretamente da base oficial do TMDB.
-      </div>
-
-      <!-- SE FOR SÉRIE: EPISÓDIOS -->
-      <div class="episodes-sec" id="modalEpisodesSec" style="display: none;">
-        <h3>📺 Selecione o Episódio:</h3>
-        <div id="episodesContainer"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- MODAL DE TRAILER YOUTUBE -->
-  <div class="trailer-overlay" id="trailerOverlay">
-    <div class="trailer-box">
-      <iframe id="trailerFrame" src="" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
-    </div>
-    <button class="btn-close-trailer" onclick="fecharTrailer()">✕ Fechar Trailer</button>
-  </div>
-
-  <!-- TELA DE CARREGAMENTO -->
-  <div class="loading-overlay" id="loadingOverlay">
-    <div class="loader-box">
-      <div class="loader-spinner"></div>
-      <div class="loading-title" id="loadingTitle">Preparando mídia...</div>
-      <div class="loading-sub" id="loadingSub">Enviando o vídeo diretamente para o seu chat no Telegram...</div>
-      <div class="loading-badge" id="loadingBadge">⚡ Miniflix Instant Play</div>
-    </div>
-  </div>
-
-  <script>
-    // --- CONFIGURAÇÕES ---
-    const API_BASE_URL = "https://miniflix-app.onrender.com/api";
-    const BOT_USERNAME = "miniflix_drive_bot";
-
-    const tg = window.Telegram?.WebApp;
-    if (tg) {
-      tg.ready();
-      tg.expand();
-    }
-
-    let catalogoCompleto = [];
-    let categoriaAtiva = 'todos';
-    let generoAtivo = 'todos';
-    let itemSelecionado = null;
-
-    // --- FAVORITOS LOCALSTORAGE ---
-    function getFavoritos() {
-      return JSON.parse(localStorage.getItem('miniflix_favs') || '[]');
-    }
-
-    function toggleFavorito(id) {
-      if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
-      let favs = getFavoritos();
-      if (favs.includes(id)) {
-        favs = favs.filter(item => item !== id);
-      } else {
-        favs.push(id);
-      }
-      localStorage.setItem('miniflix_favs', JSON.stringify(favs));
-      renderCatalogo();
-      if (itemSelecionado && itemSelecionado.id === id) {
-        atualizarBotaoFavModal(favs.includes(id));
-      }
-    }
-
-    // --- CARREGAMENTO DO CATÁLOGO ---
-    async function carregarCatalogo() {
-      try {
-        const resp = await fetch(`${API_BASE_URL}/catalogo`);
-        if (!resp.ok) throw new Error("Erro na requisição");
-        catalogoCompleto = await resp.json();
-        
-        document.getElementById('statusBadge').innerText = `${catalogoCompleto.length} títulos`;
-        gerarChipsGeneros();
-        renderCatalogo();
-      } catch (err) {
-        console.error(err);
-        document.getElementById('catalogGrid').innerHTML = `
-          <div class="empty-state">
-            ⚠️ Não foi possível carregar o catálogo.<br>Verifique a conexão ou reinicie o bot.
-          </div>
-        `;
-      }
-    }
-
-    // --- GERAÇÃO DE CHIPS DE GÊNERO ---
-    function gerarChipsGeneros() {
-      const setGeneros = new Set();
-      catalogoCompleto.forEach(item => {
-        (item.generos || []).forEach(g => setGeneros.add(g));
-      });
-
-      const container = document.getElementById('genresChips');
-      if (setGeneros.size === 0) {
-        container.style.display = 'none';
-        return;
-      }
-
-      container.innerHTML = `<div class="chip ${generoAtivo === 'todos' ? 'active' : ''}" onclick="filtrarGenero('todos')">Todos os Gêneros</div>`;
-      Array.from(setGeneros).sort().forEach(gen => {
-        container.innerHTML += `<div class="chip ${generoAtivo === gen ? 'active' : ''}" onclick="filtrarGenero('${gen}')">${gen}</div>`;
-      });
-    }
-
-    function filtrarCategoria(cat) {
-      if (tg?.HapticFeedback) tg.HapticFeedback.selectionChanged();
-      categoriaAtiva = cat;
-      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-      if (event && event.target) event.target.classList.add('active');
-      renderCatalogo();
-    }
-
-    function filtrarGenero(gen) {
-      if (tg?.HapticFeedback) tg.HapticFeedback.selectionChanged();
-      generoAtivo = gen;
-      document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
-      if (event && event.target) event.target.classList.add('active');
-      renderCatalogo();
-    }
-
-    // --- RENDERIZAR CARROSSEL "ADICIONADOS RECENTEMENTE" (PRESERVA A ORDEM DA API DE ATUALIZADOS) ---
-    function renderAdicionadosRecentemente() {
-      const sec = document.getElementById('recentesSection');
-      const row = document.getElementById('recentesRow');
-
-      // Se estiver na aba 'favoritos', esconde a seção
-      if (categoriaAtiva === 'favoritos') {
-        sec.style.display = 'none';
-        return;
-      }
-
-      // Filtra os itens mantendo a ordem exata da API (já ordenada por atualização)
-      let listaRecentes = catalogoCompleto;
-      if (categoriaAtiva !== 'todos') {
-        listaRecentes = listaRecentes.filter(item => item.tipo === categoriaAtiva);
-      }
-
-      // Pega os 10 mais recentes
-      const recentes = listaRecentes.slice(0, 10);
-
-      if (recentes.length === 0) {
-        sec.style.display = 'none';
-        return;
-      }
-
-      sec.style.display = 'block';
-      row.innerHTML = recentes.map(item => {
-        return `
-          <div class="recentes-card" onclick="abrirModal(${item.id})">
-            <div class="recentes-poster-box">
-              <img src="${item.img}" alt="${item.titulo}" loading="lazy" />
-              <div class="badge-novo">NOVO</div>
-              ${item.nota ? `<div class="badge-nota">⭐ ${item.nota}</div>` : ''}
-            </div>
-            <div class="recentes-card-body">
-              <div class="recentes-card-title">${item.titulo}</div>
-              <div class="recentes-card-sub">${item.tipo} • ${item.ano || 'N/A'}</div>
-            </div>
-          </div>
-        `;
-      }).join('');
-    }
-
-    // --- RENDERIZAR GRADE PRINCIPAL (ORDEM ALFABÉTICA A-Z) ---
-    function renderCatalogo() {
-      renderAdicionadosRecentemente();
-
-      const termo = document.getElementById('searchInput').value.toLowerCase().trim();
-      const favs = getFavoritos();
-      const grid = document.getElementById('catalogGrid');
-
-      let lista = catalogoCompleto.filter(item => {
-        if (categoriaAtiva === 'favoritos' && !favs.includes(item.id)) return false;
-        if (categoriaAtiva !== 'todos' && categoriaAtiva !== 'favoritos' && item.tipo !== categoriaAtiva) return false;
-        if (generoAtivo !== 'todos' && !(item.generos || []).includes(generoAtivo)) return false;
-        if (termo && !item.titulo.toLowerCase().includes(termo)) return false;
-        return true;
-      });
-
-      // ORDENA EM ORDEM ALFABÉTICA (A-Z) PARA A GRADE GERAL
-      lista.sort((a, b) => a.titulo.localeCompare(b.titulo, 'pt-BR', { sensitivity: 'base' }));
-
-      if (lista.length === 0) {
-        grid.innerHTML = `<div class="empty-state">Nenhum título encontrado.</div>`;
-        return;
-      }
-
-      grid.innerHTML = lista.map(item => {
-        const isFav = favs.includes(item.id);
-        const audioClass = item.audio?.toLowerCase().includes('leg') ? 'leg' : 'dub';
-        const audioTag = item.audio ? `<div class="badge-audio ${audioClass}">${audioClass.toUpperCase()}</div>` : '';
-
-        return `
-          <div class="card" onclick="abrirModal(${item.id})">
-            <div class="poster-box">
-              <img src="${item.img}" alt="${item.titulo}" loading="lazy" />
-              ${audioTag}
-              <button class="card-fav-btn" onclick="event.stopPropagation(); toggleFavorito(${item.id})">
-                ${isFav ? '❤️' : '🤍'}
-              </button>
-            </div>
-            <div class="card-info">
-              <div class="card-title">${item.titulo}</div>
-              <div class="card-meta">
-                <span>${item.ano || ''}</span>
-                <span>${item.duracao || item.tipo.toUpperCase()}</span>
-              </div>
-            </div>
-          </div>
-        `;
-      }).join('');
-    }
-
-    document.getElementById('searchInput').addEventListener('input', renderCatalogo);
-
-    // --- MODAL DE DETALHES ---
-    function abrirModal(id) {
-      if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
-      itemSelecionado = catalogoCompleto.find(i => i.id === id);
-      if (!itemSelecionado) return;
-
-      const favs = getFavoritos();
-      document.getElementById('modalPoster').src = itemSelecionado.img;
-      document.getElementById('modalTitle').innerText = itemSelecionado.titulo;
-      document.getElementById('modalRating').innerText = itemSelecionado.nota ? `⭐ ${itemSelecionado.nota}` : '⭐ N/A';
-      document.getElementById('modalYear').innerText = itemSelecionado.ano || '';
-      document.getElementById('modalDuration').innerText = itemSelecionado.duracao ? `⏱️ ${itemSelecionado.duracao}` : '';
-      document.getElementById('modalAudio').innerText = `🔊 ${itemSelecionado.audio || 'Dublado'}`;
-      document.getElementById('modalSynopsis').innerText = itemSelecionado.sinopse;
-
-      const genresBox = document.getElementById('modalGenres');
-      genresBox.innerHTML = (itemSelecionado.generos || []).map(g => `<span class="genre-tag">${g}</span>`).join('');
-
-      const btnTrailer = document.getElementById('modalTrailerBtn');
-      btnTrailer.style.display = itemSelecionado.trailer_key ? 'flex' : 'none';
-
-      atualizarBotaoFavModal(favs.includes(itemSelecionado.id));
-
-      const playBtn = document.getElementById('modalPlayBtn');
-      const epSec = document.getElementById('modalEpisodesSec');
-      const epContainer = document.getElementById('episodesContainer');
-
-      if (itemSelecionado.tipo === 'filme') {
-        playBtn.style.display = 'flex';
-        playBtn.innerText = '▶️ Assistir Filme';
-        epSec.style.display = 'none';
-      } else {
-        playBtn.style.display = 'none';
-        epSec.style.display = 'block';
-
-        epContainer.innerHTML = '';
-        const temps = itemSelecionado.temporadas || {};
-
-        // ORDENAÇÃO NUMÉRICA DAS TEMPORADAS (CORRIGE AS PARCIAIS COMO 1, 1.5, 2)
-        const seasonKeys = Object.keys(temps).sort((a, b) => parseFloat(a) - parseFloat(b));
-
-        seasonKeys.forEach(tNum => {
-          const eps = (temps[tNum] || []).slice();
-          // ORDENAÇÃO NUMÉRICA DOS EPISÓDIOS
-          eps.sort((a, b) => parseFloat(a) - parseFloat(b));
-
-          const valNum = parseFloat(tNum);
-          const rotuloTemp = valNum === 0 ? '⭐ Especiais' : `Temporada ${tNum}`;
-          
-          epContainer.innerHTML += `<div style="font-size: 12px; font-weight: 700; margin: 12px 0 6px; color: #8e95a5;">${rotuloTemp}</div>`;
-          
-          let gridHtml = '<div class="ep-grid">';
-          eps.forEach(epNum => {
-            const epVal = parseFloat(epNum);
-            const epLabel = Number.isInteger(epVal) 
-              ? epVal.toString().padStart(2, '0') 
-              : epVal;
-
-            gridHtml += `<button class="ep-btn" onclick="solicitarMidia(${itemSelecionado.id}, ${tNum}, ${epNum})">EP ${epLabel}</button>`;
-          });
-          gridHtml += '</div>';
-          
-          epContainer.innerHTML += gridHtml;
-        });
-      }
-
-      document.getElementById('modalOverlay').classList.add('active');
-    }
-
-    function fecharModal(e) {
-      if (e) e.stopPropagation();
-      document.getElementById('modalOverlay').classList.remove('active');
-    }
-
-    function atualizarBotaoFavModal(isFav) {
-      document.getElementById('modalFavBtn').innerText = isFav ? '❤️' : '🤍';
-    }
-
-    function toggleFavoritoModal() {
-      if (itemSelecionado) toggleFavorito(itemSelecionado.id);
-    }
-
-    // --- TRAILER ---
-    function abrirTrailer() {
-      if (!itemSelecionado?.trailer_key) return;
-      const frame = document.getElementById('trailerFrame');
-      frame.src = `https://www.youtube-nocookie.com/embed/${itemSelecionado.trailer_key}?autoplay=1`;
-      document.getElementById('trailerOverlay').classList.add('active');
-    }
-
-    function fecharTrailer() {
-      document.getElementById('trailerFrame').src = '';
-      document.getElementById('trailerOverlay').classList.remove('active');
-    }
-
-    // --- DISPARO DE MÍDIA VIA API ---
-    async function executarPlayPrincipal() {
-      if (itemSelecionado) solicitarMidia(itemSelecionado.id, 0, 0);
-    }
-
-    function mostrarLoading(titulo, sub) {
-      document.getElementById('loadingTitle').innerText = titulo;
-      document.getElementById('loadingSub').innerText = sub;
-      document.getElementById('loadingOverlay').classList.add('active');
-    }
-
-    function esconderLoading() {
-      document.getElementById('loadingOverlay').classList.remove('active');
-    }
-
-    async function solicitarMidia(id, temp, ep) {
-      const item = catalogoCompleto.find(i => i.id === id);
-
-      if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-
-      const epDisplay = Number.isInteger(parseFloat(ep)) ? ep.toString().padStart(2, '0') : ep;
-
-      const subTexto = (item?.tipo === 'filme' || (temp === 0 && ep === 0))
-        ? `Enviando "${item?.titulo || 'o filme'}" para o seu chat...`
-        : `Enviando Temp ${temp} • Ep ${epDisplay} para o seu chat...`;
-
-      mostrarLoading("🍿 Carregando...", subTexto);
-
-      const userId = tg?.initDataUnsafe?.user?.id;
-      if (userId) {
-        try {
-          const resp = await fetch(`${API_BASE_URL}/play?user_id=${userId}&titulo_id=${id}&tipo=${item?.tipo || 'filme'}&temporada=${temp}&episodio=${ep}`);
-          const dados = await resp.json();
-
-          if (dados.ok) {
-            document.getElementById('loadingTitle').innerText = "✅ Pronto!";
-            document.getElementById('loadingSub').innerText = "Vídeo enviado! Abrindo a conversa...";
-            
-            setTimeout(() => {
-              if (tg?.close) tg.close();
-            }, 400);
-            return;
-          } else {
-            esconderLoading();
-            alert("❌ Erro ao buscar o arquivo. Tente novamente.");
-            return;
-          }
-        } catch (err) {
-          console.error("Erro no play:", err);
-          esconderLoading();
-          alert("⚠ Erro de conexão com o servidor.");
-          return;
+import asyncio
+import json
+import logging
+import os
+import re
+import sys
+import threading
+import unicodedata
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs, urlparse
+import psycopg2
+import requests
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    Update,
+    WebAppInfo,
+)
+from telegram.ext import (
+    ApplicationBuilder,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
+from telegram.request import HTTPXRequest
+
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+
+# --- CREDENCIAIS E CONFIGURAÇÕES ---
+TOKEN = "8659249610:AAH2jGbYgz1ngToEtZeVxs8fzvFMfXb0Ykk"
+WEBAPP_URL = "https://pminozo69-ui.github.io/miniflix-app/"
+DATABASE_URL = "postgresql://postgres.vmdqbjmyemhxmmcixskf:cC2%254x5V%21gthfD%21@aws-0-sa-east-1.pooler.supabase.com:5432/postgres"
+TMDB_API_KEY = "c5fd7ff31feef7e7e9b27247c7aff0a1"
+TMDB_IMG_BASE = "https://image.tmdb.org/t/p/w500"
+
+ITENS_POR_PAGINA = 8
+ADMIN_ID = 0
+
+def get_db_connection():
+    return psycopg2.connect(DATABASE_URL)
+
+def normalizar(texto: str) -> str:
+    if not texto:
+        return ""
+    return unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode("utf-8").lower().strip()
+
+def formatar_numero(valor: float) -> str:
+    """Converte 9.0 em '09' e 9.5 em '9.5'."""
+    val = float(valor)
+    if val.is_integer():
+        return f"{int(val):02d}"
+    return f"{val:.1f}".rstrip('0').rstrip('.')
+
+def formatar_temporada(valor: float) -> str:
+    """Converte 0 em '⭐ Especiais', 1.0 em 'Temporada 1' e 1.5 em 'Temporada 1.5'."""
+    val = float(valor)
+    if val == 0:
+        return "⭐ Especiais"
+    if val.is_integer():
+        return f"Temporada {int(val)}"
+    return f"Temporada {val:.1f}".rstrip('0').rstrip('.')
+
+def formatar_valor_json(valor: float):
+    """Retorna int se for inteiro ou float se tiver decimais para compatibilidade JSON."""
+    val = float(valor)
+    return int(val) if val.is_integer() else round(val, 1)
+
+# --- INTEGRAÇÃO COM TMDB ---
+def buscar_metadados_tmdb(nome_titulo: str, categoria: str):
+    tipo_busca = "movie" if categoria == "filme" else "tv"
+    url_busca = f"https://api.themoviedb.org/3/search/{tipo_busca}"
+    params = {
+        "api_key": TMDB_API_KEY,
+        "query": nome_titulo,
+        "language": "pt-BR",
+        "include_adult": "false"
+    }
+
+    try:
+        resp = requests.get(url_busca, params=params, timeout=10)
+        dados = resp.json()
+        resultados = dados.get("results", [])
+
+        if not resultados:
+            return None, None, None, None, None, [], None
+
+        item = resultados[0]
+        tmdb_id = item.get("id")
+
+        url_detalhes = f"https://api.themoviedb.org/3/{tipo_busca}/{tmdb_id}"
+        params_detalhes = {
+            "api_key": TMDB_API_KEY,
+            "language": "pt-BR",
+            "append_to_response": "videos"
         }
-      }
+        resp_det = requests.get(url_detalhes, params=params_detalhes, timeout=10)
+        detalhes = resp_det.json() if resp_det.status_code == 200 else item
 
-      // Fallback quando aberto fora do Telegram
-      esconderLoading();
-      const query = temp === 0 && ep === 0 ? `play_${id}` : `play_${id}_${temp}_${ep}`;
-      window.open(`https://t.me/${BOT_USERNAME}?start=${query}`, '_blank');
-    }
+        poster_path = detalhes.get("poster_path") or item.get("poster_path")
+        poster_url = f"{TMDB_IMG_BASE}{poster_path}" if poster_path else "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=300"
+        sinopse = detalhes.get("overview") or item.get("overview") or "Sem sinopse cadastrada."
+        
+        data_lanc = detalhes.get("release_date") or detalhes.get("first_air_date") or ""
+        ano = int(data_lanc.split("-")[0]) if "-" in data_lanc else None
 
-    // Iniciar
-    carregarCatalogo();
-  </script>
-</body>
-</html>
+        nota_bruta = detalhes.get("vote_average", 0.0)
+        nota = round(float(nota_bruta), 1) if nota_bruta else None
+
+        duracao = ""
+        if tipo_busca == "movie":
+            runtime = detalhes.get("runtime")
+            if runtime:
+                horas = runtime // 60
+                mins = runtime % 60
+                duracao = f"{horas}h {mins:02d}m" if horas > 0 else f"{mins}m"
+        else:
+            ep_runtimes = detalhes.get("episode_run_time") or []
+            if ep_runtimes:
+                duracao = f"~{ep_runtimes[0]}m/ep"
+            else:
+                duracao = "Série"
+
+        generos = [g.get("name") for g in detalhes.get("genres", []) if g.get("name")]
+
+        trailer_key = None
+        videos = detalhes.get("videos", {}).get("results", [])
+        for v in videos:
+            if v.get("site") == "YouTube" and v.get("type") in ["Trailer", "Teaser"]:
+                trailer_key = v.get("key")
+                break
+
+        if not trailer_key and tmdb_id:
+            try:
+                resp_vid_en = requests.get(
+                    f"https://api.themoviedb.org/3/{tipo_busca}/{tmdb_id}/videos",
+                    params={"api_key": TMDB_API_KEY, "language": "en-US"},
+                    timeout=5
+                )
+                videos_en = resp_vid_en.json().get("results", [])
+                for v in videos_en:
+                    if v.get("site") == "YouTube" and v.get("type") in ["Trailer", "Teaser"]:
+                        trailer_key = v.get("key")
+                        break
+            except Exception:
+                pass
+
+        return poster_url, sinopse, ano, nota, duracao, generos, trailer_key
+
+    except Exception as e:
+        logging.error(f"Erro ao consultar TMDB: {e}")
+        return None, None, None, None, None, [], None
+
+# --- BANCO DE DADOS (SUPABASE COM MIGRAÇÃO E COLUNA ATUALIZADO_EM) ---
+def init_db():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS titulos (
+            id SERIAL PRIMARY KEY,
+            categoria TEXT NOT NULL,
+            nome TEXT UNIQUE NOT NULL,
+            nome_busca TEXT NOT NULL,
+            poster_url TEXT,
+            sinopse TEXT,
+            ano INTEGER,
+            nota NUMERIC(3,1),
+            duracao TEXT,
+            generos TEXT,
+            trailer_key TEXT,
+            audio TEXT,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    c.execute("""
+        ALTER TABLE titulos 
+        ADD COLUMN IF NOT EXISTS poster_url TEXT,
+        ADD COLUMN IF NOT EXISTS sinopse TEXT,
+        ADD COLUMN IF NOT EXISTS ano INTEGER,
+        ADD COLUMN IF NOT EXISTS nota NUMERIC(3,1),
+        ADD COLUMN IF NOT EXISTS duracao TEXT,
+        ADD COLUMN IF NOT EXISTS generos TEXT,
+        ADD COLUMN IF NOT EXISTS trailer_key TEXT,
+        ADD COLUMN IF NOT EXISTS audio TEXT,
+        ADD COLUMN IF NOT EXISTS criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS arquivos (
+            id SERIAL PRIMARY KEY,
+            titulo_id INTEGER REFERENCES titulos(id) ON DELETE CASCADE,
+            temporada NUMERIC(4, 1) NOT NULL,
+            episodio NUMERIC(4, 1) NOT NULL,
+            chat_id BIGINT NOT NULL,
+            message_id BIGINT NOT NULL,
+            UNIQUE(chat_id, message_id)
+        );
+    """)
+    try:
+        c.execute("""
+            ALTER TABLE arquivos 
+            ALTER COLUMN temporada TYPE NUMERIC(4, 1),
+            ALTER COLUMN episodio TYPE NUMERIC(4, 1);
+        """)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS usuarios (
+            user_id BIGINT PRIMARY KEY,
+            primeiro_acesso TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    conn.commit()
+    c.close()
+    conn.close()
+
+# --- SERVIDOR WEB NATIVO (API DO CATÁLOGO E DISPARO COM SUPORTE A CORS) ---
+class ServidorWebHandler(BaseHTTPRequestHandler):
+    def _definir_headers_cors(self, status=200, content_type="application/json; charset=utf-8", length=0):
+        self.send_response(status)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+        self.send_header("Content-Type", content_type)
+        if length > 0:
+            self.send_header("Content-Length", str(length))
+        self.end_headers()
+
+    def do_OPTIONS(self):
+        """Trata requisições preflight do navegador Telegram/GitHub Pages"""
+        self._definir_headers_cors(200, "text/plain", 0)
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        
+        # 1. Rota de disparo de mídia
+        if parsed.path == "/api/play":
+            try:
+                params = parse_qs(parsed.query)
+                user_id = int(params.get("user_id", [0])[0])
+                titulo_id = int(params.get("titulo_id", [0])[0])
+                tipo = params.get("tipo", ["filme"])[0]
+                temp = float(params.get("temporada", [0.0])[0])
+                ep = float(params.get("episodio", [0.0])[0])
+
+                if user_id and titulo_id:
+                    conn = get_db_connection()
+                    c = conn.cursor()
+                    
+                    if tipo == "filme" or (temp == 0.0 and ep == 0.0):
+                        c.execute("SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s ORDER BY id DESC LIMIT 1;", (titulo_id,))
+                    else:
+                        c.execute(
+                            "SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s ORDER BY id DESC LIMIT 1;",
+                            (titulo_id, temp, ep)
+                        )
+                    
+                    arq = c.fetchone()
+                    if arq:
+                        arq_id, chat_origem, msg_origem = arq
+                        
+                        reply_markup = None
+                        if tipo != "filme":
+                            c.execute(
+                                """SELECT id, episodio FROM arquivos 
+                                   WHERE titulo_id = %s AND temporada = %s AND episodio > %s 
+                                   ORDER BY episodio ASC LIMIT 1;""",
+                                (titulo_id, temp, ep)
+                            )
+                            prox = c.fetchone()
+                            if prox:
+                                label_prox = formatar_numero(prox[1])
+                                reply_markup = {
+                                    "inline_keyboard": [[{
+                                        "text": f"▶️ Próximo (Ep {label_prox})",
+                                        "callback_data": f"play:{prox[0]}"
+                                    }]]
+                                }
+                        
+                        c.close()
+                        conn.close()
+
+                        payload = {
+                            "chat_id": user_id,
+                            "from_chat_id": chat_origem,
+                            "message_id": msg_origem
+                        }
+                        if reply_markup:
+                            payload["reply_markup"] = reply_markup
+
+                        requests.post(f"https://api.telegram.org/bot{TOKEN}/copyMessage", json=payload, timeout=5)
+
+                        corpo = json.dumps({"ok": True}).encode("utf-8")
+                        self._definir_headers_cors(200, "application/json; charset=utf-8", len(corpo))
+                        self.wfile.write(corpo)
+                        return
+                    
+                    c.close()
+                    conn.close()
+            except Exception as e:
+                logging.error(f"Erro na rota /api/play: {e}")
+
+            corpo = json.dumps({"ok": False}).encode("utf-8")
+            self._definir_headers_cors(200, "application/json; charset=utf-8", len(corpo))
+            self.wfile.write(corpo)
+
+        # 2. Rota do Catálogo (Ordenado pelos atualizados/adicionados mais recentemente)
+        elif parsed.path == "/api/catalogo":
+            try:
+                conn = get_db_connection()
+                c = conn.cursor()
+                c.execute("""
+                    SELECT t.id, t.categoria, t.nome, t.poster_url, t.sinopse, t.ano,
+                           t.nota, t.duracao, t.generos, t.trailer_key, t.audio,
+                           a.temporada, a.episodio, t.criado_em, t.atualizado_em
+                    FROM titulos t
+                    LEFT JOIN arquivos a ON t.id = a.titulo_id
+                    ORDER BY COALESCE(t.atualizado_em, t.criado_em) DESC, a.temporada ASC, a.episodio ASC;
+                """)
+                linhas = c.fetchall()
+                c.close()
+                conn.close()
+
+                titulos_map = {}
+                for r in linhas:
+                    t_id, cat, nome, poster, sinopse, ano, nota, duracao, generos_raw, trailer_key, audio, temp, ep, criado_em, atualizado_em = r
+                    
+                    if t_id not in titulos_map:
+                        generos_list = []
+                        if generos_raw:
+                            try:
+                                generos_list = json.loads(generos_raw) if generos_raw.startswith("[") else [g.strip() for g in generos_raw.split(",") if g.strip()]
+                            except Exception:
+                                generos_list = []
+
+                        titulos_map[t_id] = {
+                            "id": t_id,
+                            "tipo": cat,
+                            "titulo": nome,
+                            "ano": ano or "N/A",
+                            "nota": float(nota) if nota else None,
+                            "duracao": duracao or "",
+                            "generos": generos_list,
+                            "trailer_key": trailer_key or "",
+                            "audio": audio or "Dublado",
+                            "sinopse": sinopse or "Sem sinopse cadastrada.",
+                            "img": poster or "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=300",
+                            "temporadas": {},
+                            "criado_em": str(criado_em) if criado_em else "",
+                            "atualizado_em": str(atualizado_em) if atualizado_em else ""
+                        }
+                    
+                    if cat != "filme" and temp is not None and ep is not None:
+                        temp_str = str(formatar_valor_json(temp))
+                        ep_formatado = formatar_valor_json(ep)
+                        if temp_str not in titulos_map[t_id]["temporadas"]:
+                            titulos_map[t_id]["temporadas"][temp_str] = []
+                        if ep_formatado not in titulos_map[t_id]["temporadas"][temp_str]:
+                            titulos_map[t_id]["temporadas"][temp_str].append(ep_formatado)
+
+                corpo = json.dumps(list(titulos_map.values()), ensure_ascii=False).encode("utf-8")
+                self._definir_headers_cors(200, "application/json; charset=utf-8", len(corpo))
+                self.wfile.write(corpo)
+            except Exception as e:
+                logging.error(f"Erro na rota /api/catalogo: {e}")
+                err_msg = str(e).encode("utf-8")
+                self._definir_headers_cors(500, "text/plain; charset=utf-8", len(err_msg))
+                self.wfile.write(err_msg)
+        else:
+            msg = b"Miniflix API Online!"
+            self._definir_headers_cors(200, "text/plain", len(msg))
+            self.wfile.write(msg)
+
+    def log_message(self, format, *args):
+        return
+
+def iniciar_servidor_web():
+    porta = int(os.environ.get("PORT", 8080))
+    httpd = HTTPServer(("0.0.0.0", porta), ServidorWebHandler)
+    logging.info(f"--> [API + WEB] Servidor HTTP rodando na porta {porta}")
+    httpd.serve_forever()
+
+# --- INGESTÃO AUTOMÁTICA COM NOTIFICAÇÃO E RENOVAÇÃO DE DATA ---
+def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int):
+    if not texto_completo.startswith("#"):
+        return False, False, {}
+
+    texto_lower = texto_completo.lower()
+    
+    audio = "Dublado"
+    if "#legendado" in texto_lower or "#leg" in texto_lower or "[leg]" in texto_lower:
+        audio = "Legendado"
+    elif "#dublado" in texto_lower or "#dub" in texto_lower or "[dub]" in texto_lower:
+        audio = "Dublado"
+    elif "#dual" in texto_lower or "[dual]" in texto_lower:
+        audio = "Dublado / Legendado"
+
+    primeira_linha = texto_completo.split("\n")[0].strip()
+    
+    match_ep = re.match(
+        r"^#(serie|anime|cartoon)\s+(.+?)\s+[sS](\d+(?:\.\d+)?)[eE](\d+(?:\.\d+)?)",
+        primeira_linha,
+        re.IGNORECASE,
+    )
+    match_filme = re.match(r"^#filme\s+(.+)", primeira_linha, re.IGNORECASE)
+
+    conn = get_db_connection()
+    c = conn.cursor()
+
+    if match_ep:
+        cat, nome_bruto = match_ep.group(1).lower(), match_ep.group(2).strip()
+        temp, ep = float(match_ep.group(3)), float(match_ep.group(4))
+        
+        nome = re.sub(r"#\w+", "", nome_bruto).strip().title()
+        nome_busca = normalizar(nome)
+
+        c.execute("SELECT id FROM titulos WHERE nome = %s;", (nome,))
+        res_existente = c.fetchone()
+        e_novo_titulo = res_existente is None
+
+        poster_url, sinopse, ano, nota, duracao, generos, trailer_key = buscar_metadados_tmdb(nome, cat)
+        generos_json = json.dumps(generos, ensure_ascii=False) if generos else "[]"
+
+        c.execute("""
+            INSERT INTO titulos (categoria, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos, trailer_key, audio, atualizado_em)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+            ON CONFLICT (nome) DO UPDATE SET 
+                categoria = EXCLUDED.categoria,
+                poster_url = COALESCE(EXCLUDED.poster_url, titulos.poster_url),
+                sinopse = COALESCE(EXCLUDED.sinopse, titulos.sinopse),
+                ano = COALESCE(EXCLUDED.ano, titulos.ano),
+                nota = COALESCE(EXCLUDED.nota, titulos.nota),
+                duracao = COALESCE(EXCLUDED.duracao, titulos.duracao),
+                generos = COALESCE(EXCLUDED.generos, titulos.generos),
+                trailer_key = COALESCE(EXCLUDED.trailer_key, titulos.trailer_key),
+                audio = EXCLUDED.audio,
+                atualizado_em = CURRENT_TIMESTAMP;
+        """, (cat, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos_json, trailer_key, audio))
+
+        c.execute("SELECT id FROM titulos WHERE nome = %s;", (nome,))
+        titulo_id = c.fetchone()[0]
+
+        c.execute(
+            "SELECT id FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s;",
+            (titulo_id, temp, ep)
+        )
+        arq_existente = c.fetchone()
+        if arq_existente:
+            c.execute(
+                "UPDATE arquivos SET chat_id = %s, message_id = %s WHERE id = %s;",
+                (chat_id, message_id, arq_existente[0])
+            )
+        else:
+            c.execute(
+                "INSERT INTO arquivos (titulo_id, temporada, episodio, chat_id, message_id) VALUES (%s, %s, %s, %s, %s);",
+                (titulo_id, temp, ep, chat_id, message_id)
+            )
+        
+        conn.commit()
+        c.close()
+        conn.close()
+        print(f"--> [TMDB + SUPABASE] {nome} (S{temp}E{ep}) [{audio}] salvo/atualizado.")
+        
+        info = {
+            "nome": nome,
+            "categoria": cat,
+            "temporada": temp,
+            "episodio": ep
+        }
+        return True, e_novo_titulo, info
+
+    elif match_filme:
+        cat = "filme"
+        nome_bruto = match_filme.group(1).strip()
+        nome = re.sub(r"#\w+", "", nome_bruto).strip().title()
+        nome_busca = normalizar(nome)
+
+        c.execute("SELECT id FROM titulos WHERE nome = %s;", (nome,))
+        res_existente = c.fetchone()
+        e_novo_titulo = res_existente is None
+
+        poster_url, sinopse, ano, nota, duracao, generos, trailer_key = buscar_metadados_tmdb(nome, cat)
+        generos_json = json.dumps(generos, ensure_ascii=False) if generos else "[]"
+
+        c.execute("""
+            INSERT INTO titulos (categoria, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos, trailer_key, audio, atualizado_em)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+            ON CONFLICT (nome) DO UPDATE SET 
+                categoria = EXCLUDED.categoria,
+                poster_url = COALESCE(EXCLUDED.poster_url, titulos.poster_url),
+                sinopse = COALESCE(EXCLUDED.sinopse, titulos.sinopse),
+                ano = COALESCE(EXCLUDED.ano, titulos.ano),
+                nota = COALESCE(EXCLUDED.nota, titulos.nota),
+                duracao = COALESCE(EXCLUDED.duracao, titulos.duracao),
+                generos = COALESCE(EXCLUDED.generos, titulos.generos),
+                trailer_key = COALESCE(EXCLUDED.trailer_key, titulos.trailer_key),
+                audio = EXCLUDED.audio,
+                atualizado_em = CURRENT_TIMESTAMP;
+        """, (cat, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos_json, trailer_key, audio))
+
+        c.execute("SELECT id FROM titulos WHERE nome = %s;", (nome,))
+        titulo_id = c.fetchone()[0]
+
+        c.execute("SELECT id FROM arquivos WHERE titulo_id = %s;", (titulo_id,))
+        arq_existente = c.fetchone()
+        if arq_existente:
+            c.execute(
+                "UPDATE arquivos SET chat_id = %s, message_id = %s WHERE id = %s;",
+                (chat_id, message_id, arq_existente[0])
+            )
+        else:
+            c.execute(
+                "INSERT INTO arquivos (titulo_id, temporada, episodio, chat_id, message_id) VALUES (%s, 0.0, 0.0, %s, %s);",
+                (titulo_id, chat_id, message_id)
+            )
+        
+        conn.commit()
+        c.close()
+        conn.close()
+        print(f"--> [TMDB + SUPABASE] Filme {nome} ({ano}) [{audio}] salvo/atualizado.")
+        
+        info = {
+            "nome": nome,
+            "categoria": cat,
+            "temporada": 0.0,
+            "episodio": 0.0
+        }
+        return True, e_novo_titulo, info
+
+    c.close()
+    conn.close()
+    return False, False, {}
+
+async def processar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.effective_message
+    if not msg:
+        return
+    
+    texto = (msg.caption or msg.text or "").strip()
+    if not texto.startswith("#"):
+        return
+
+    sucesso, e_novo_titulo, info = salvar_ou_atualizar_midia(texto, msg.chat_id, msg.message_id)
+    
+    if sucesso:
+        if e_novo_titulo:
+            aviso = f"✨ **Novo Título Adicionado!**\n🎬 *{info['nome']}* já está disponível no catálogo."
+        else:
+            if info['categoria'] == 'filme':
+                aviso = f"🔄 **Filme Atualizado!**\n🎬 *{info['nome']}* teve seus arquivos atualizados no Miniflix."
+            else:
+                temp_label = formatar_numero(info['temporada'])
+                ep_label = formatar_numero(info['episodio'])
+                aviso = f"🔥 **Nova Temporada Adicionada!**\n📺 *{info['nome']}* (S{temp_label}E{ep_label}) foi atualizado e movido ao topo dos Recentemente Adicionados."
+            
+        await context.bot.send_message(
+            chat_id=msg.chat_id,
+            text=aviso,
+            reply_to_message_id=msg.message_id,
+            parse_mode="Markdown"
+        )
+
+async def processar_edicao(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.edited_channel_post or update.edited_message
+    if msg:
+        salvar_ou_atualizar_midia((msg.caption or msg.text or "").strip(), msg.chat_id, msg.message_id)
+
+# --- MENUS E COMANDOS NATIVOS ---
+def menu_principal():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎬 Filmes", callback_data="cat:filme:0"),
+         InlineKeyboardButton("📺 Séries", callback_data="cat:serie:0")],
+        [InlineKeyboardButton("⛩️ Animes", callback_data="cat:anime:0"),
+         InlineKeyboardButton("🎨 Cartoons", callback_data="cat:cartoon:0")],
+        [InlineKeyboardButton("🚀 Abrir Catálogo Visual", web_app=WebAppInfo(url=WEBAPP_URL))]
+    ])
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("INSERT INTO usuarios (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING;", (user_id,))
+    conn.commit()
+
+    if context.args and context.args[0].startswith("play_"):
+        partes = context.args[0].split("_")
+        titulo_id = int(partes[1])
+        
+        if len(partes) >= 4:
+            temp = float(partes[2])
+            ep = float(partes[3])
+            c.execute(
+                "SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s ORDER BY id DESC LIMIT 1;",
+                (titulo_id, temp, ep)
+            )
+        else:
+            c.execute("SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s ORDER BY id DESC LIMIT 1;", (titulo_id,))
+            temp, ep = 0.0, 0.0
+            
+        arq = c.fetchone()
+        if arq:
+            arq_id, chat_origem, msg_origem = arq
+            
+            btn_prox = None
+            if len(partes) >= 4:
+                c.execute(
+                    """SELECT id, episodio FROM arquivos 
+                       WHERE titulo_id = %s AND temporada = %s AND episodio > %s 
+                       ORDER BY episodio ASC LIMIT 1;""",
+                    (titulo_id, temp, ep)
+                )
+                prox = c.fetchone()
+                if prox:
+                    label_prox = formatar_numero(prox[1])
+                    btn_prox = InlineKeyboardMarkup([[InlineKeyboardButton(f"▶️ Próximo (Ep {label_prox})", callback_data=f"play:{prox[0]}")]])
+
+            await context.bot.copy_message(
+                chat_id=update.effective_chat.id,
+                from_chat_id=chat_origem,
+                message_id=msg_origem,
+                reply_markup=btn_prox
+            )
+            c.close()
+            conn.close()
+            return
+        else:
+            await update.message.reply_text("❌ Arquivo correspondente não foi encontrado no catálogo.")
+            c.close()
+            conn.close()
+            return
+
+    c.close()
+    conn.close()
+
+    teclado_app = ReplyKeyboardMarkup(
+        [[KeyboardButton("🍿 Abrir Miniflix", web_app=WebAppInfo(url=WEBAPP_URL))]],
+        resize_keyboard=True
+    )
+
+    msg_boas_vindas = (
+        "🍿 **Bem-vindo ao Miniflix!**\n\n"
+        "Assista a filmes, séries, animes e desenhos com reprodução instantânea.\n\n"
+        "• 🚀 **Toque em '🍿 Abrir Miniflix'** abaixo para navegar pelo catálogo com capas em HD, trailers e gêneros.\n"
+        "• 🔍 Ou **digite o nome** de qualquer título aqui no chat para buscar."
+    )
+
+    await update.message.reply_markdown(msg_boas_vindas, reply_markup=teclado_app)
+    await update.message.reply_markdown("Categorias disponíveis:", reply_markup=menu_principal())
+
+async def tratar_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    dados = query.data.split(":")
+    acao = dados[0]
+
+    conn = get_db_connection()
+    c = conn.cursor()
+
+    if acao == "menu":
+        await query.edit_message_text("🍿 **Miniflix Bot**\nEscolha uma categoria:", reply_markup=menu_principal(), parse_mode="Markdown")
+
+    elif acao == "cat":
+        cat = dados[1]
+        pagina = int(dados[2]) if len(dados) > 2 else 0
+
+        c.execute("SELECT id, nome FROM titulos WHERE categoria = %s ORDER BY nome ASC;", (cat,))
+        titulos = c.fetchall()
+
+        if not titulos:
+            teclado = [[InlineKeyboardButton("↩ Voltar ao Menu", callback_data="menu:root")]]
+            await query.edit_message_text(f"Nenhum título em **{cat.capitalize()}s** ainda.", reply_markup=InlineKeyboardMarkup(teclado), parse_mode="Markdown")
+            c.close()
+            conn.close()
+            return
+
+        total_itens = len(titulos)
+        total_paginas = (total_itens + ITENS_POR_PAGINA - 1) // ITENS_POR_PAGINA
+        pagina = max(0, min(pagina, total_paginas - 1))
+        titulos_pagina = titulos[pagina * ITENS_POR_PAGINA : (pagina + 1) * ITENS_POR_PAGINA]
+
+        botoes = [[InlineKeyboardButton(t[1], callback_data=f"tit:{t[0]}")] for t in titulos_pagina]
+        linha_nav = []
+        if pagina > 0:
+            linha_nav.append(InlineKeyboardButton("« Anterior", callback_data=f"cat:{cat}:{pagina - 1}"))
+        if total_paginas > 1:
+            linha_nav.append(InlineKeyboardButton(f"{pagina + 1}/{total_paginas}", callback_data="noop"))
+        if pagina < total_paginas - 1:
+            linha_nav.append(InlineKeyboardButton("Próximo »", callback_data=f"cat:{cat}:{pagina + 1}"))
+
+        if linha_nav:
+            botoes.append(linha_nav)
+
+        botoes.append([InlineKeyboardButton("↩ Voltar ao Menu", callback_data="menu:root")])
+        await query.edit_message_text(f"📁 **{cat.capitalize()}s** (Pág. {pagina + 1}/{total_paginas}):", reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+
+    elif acao == "tit":
+        titulo_id = int(dados[1])
+        c.execute("SELECT nome, categoria FROM titulos WHERE id = %s;", (titulo_id,))
+        res = c.fetchone()
+        if not res:
+            c.close()
+            conn.close()
+            return
+        titulo, cat = res
+
+        if cat == "filme":
+            c.execute("SELECT chat_id, message_id FROM arquivos WHERE titulo_id = %s ORDER BY id DESC LIMIT 1;", (titulo_id,))
+            arq = c.fetchone()
+            if arq:
+                await context.bot.copy_message(chat_id=query.message.chat_id, from_chat_id=arq[0], message_id=arq[1])
+            c.close()
+            conn.close()
+            return
+
+        c.execute("SELECT DISTINCT temporada FROM arquivos WHERE titulo_id = %s ORDER BY temporada ASC;", (titulo_id,))
+        temporadas = c.fetchall()
+        botoes = [[InlineKeyboardButton(formatar_temporada(t[0]), callback_data=f"temp:{titulo_id}:{t[0]}")] for t in temporadas]
+        botoes.append([InlineKeyboardButton("↩ Voltar", callback_data=f"cat:{cat}:0")])
+        await query.edit_message_text(f"📺 **{titulo}**\nSelecione a temporada:", reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+
+    elif acao == "temp":
+        titulo_id = int(dados[1])
+        temp = float(dados[2])
+        c.execute("SELECT nome, categoria FROM titulos WHERE id = %s;", (titulo_id,))
+        titulo, cat = c.fetchone()
+
+        c.execute("SELECT id, episodio FROM arquivos WHERE titulo_id = %s AND temporada = %s ORDER BY episodio ASC;", (titulo_id, temp))
+        episodios = c.fetchall()
+
+        botoes, linha = [], []
+        for ep_id, ep_num in episodios:
+            label = formatar_numero(ep_num)
+            linha.append(InlineKeyboardButton(label, callback_data=f"play:{ep_id}"))
+            if len(linha) == 5:
+                botoes.append(linha)
+                linha = []
+        if linha:
+            botoes.append(linha)
+
+        botoes.append([InlineKeyboardButton("↩ Voltar às Temporadas", callback_data=f"tit:{titulo_id}")])
+        rotulo_temp = formatar_temporada(temp)
+        await query.edit_message_text(f"🎬 **{titulo}** — *{rotulo_temp}*\nEscolha o episódio:", reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+
+    elif acao == "play":
+        arq_id = int(dados[1])
+        c.execute("SELECT titulo_id, temporada, episodio, chat_id, message_id FROM arquivos WHERE id = %s;", (arq_id,))
+        arq = c.fetchone()
+        if arq:
+            titulo_id, temp_atual, ep_atual, chat_origem, msg_origem = arq
+            
+            c.execute(
+                """SELECT id, episodio FROM arquivos 
+                   WHERE titulo_id = %s AND temporada = %s AND episodio > %s 
+                   ORDER BY episodio ASC LIMIT 1;""",
+                (titulo_id, temp_atual, ep_atual)
+            )
+            prox = c.fetchone()
+            
+            btn_prox = None
+            if prox:
+                label_prox = formatar_numero(prox[1])
+                btn_prox = InlineKeyboardMarkup([[InlineKeyboardButton(f"▶️ Próximo (Ep {label_prox})", callback_data=f"play:{prox[0]}")]])
+
+            await context.bot.copy_message(
+                chat_id=query.message.chat_id,
+                from_chat_id=chat_origem,
+                message_id=msg_origem,
+                reply_markup=btn_prox,
+            )
+
+    c.close()
+    conn.close()
+
+async def buscar_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    termo = normalizar(update.message.text)
+    if len(termo) < 2:
+        return
+
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT id, nome, categoria FROM titulos WHERE nome_busca LIKE %s LIMIT 10;", (f"%{termo}%",))
+    resultados = c.fetchall()
+    c.close()
+    conn.close()
+
+    if not resultados:
+        await update.message.reply_text("Nenhum título encontrado com esse nome.")
+        return
+
+    botoes = [[InlineKeyboardButton(f"[{r[2].upper()}] {r[1]}", callback_data=f"tit:{r[0]}")] for r in resultados]
+    await update.message.reply_markdown("🔍 **Resultados encontrados:**", reply_markup=InlineKeyboardMarkup(botoes))
+
+async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM usuarios;")
+    total_users = c.fetchone()[0]
+
+    c.execute("SELECT categoria, COUNT(*) FROM titulos GROUP BY categoria;")
+    por_cat = dict(c.fetchall())
+
+    c.execute("SELECT COUNT(*) FROM arquivos;")
+    total_arquivos = c.fetchone()[0]
+    c.close()
+    conn.close()
+
+    texto = (
+        "📊 **Estatísticas do Miniflix**\n\n"
+        f"👥 **Usuários:** `{total_users}`\n"
+        f"📦 **Arquivos:** `{total_arquivos}`\n\n"
+        f"• 🎬 Filmes: `{por_cat.get('filme', 0)}`\n"
+        f"• 📺 Séries: `{por_cat.get('serie', 0)}`\n"
+        f"• ⛩️ Animes: `{por_cat.get('anime', 0)}`\n"
+        f"• 🎨 Cartoons: `{por_cat.get('cartoon', 0)}`"
+    )
+    await update.message.reply_markdown(texto)
+
+# --- INICIALIZAÇÃO ---
+async def main():
+    init_db()
+    threading.Thread(target=iniciar_servidor_web, daemon=True).start()
+
+    request_config = HTTPXRequest(connect_timeout=60.0, read_timeout=60.0)
+
+    app = (
+        ApplicationBuilder()
+        .token(TOKEN)
+        .request(request_config)
+        .get_updates_request(request_config)
+        .build()
+    )
+
+    app.add_handler(MessageHandler(
+        (filters.ChatType.CHANNEL | filters.ChatType.GROUPS | filters.ChatType.SUPERGROUP) & ~filters.COMMAND, 
+        processar_postagem
+    ))
+    
+    app.add_handler(MessageHandler(
+        filters.UpdateType.EDITED_CHANNEL_POST | filters.UpdateType.EDITED_MESSAGE, 
+        processar_postagem
+    ))
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("stats", cmd_stats))
+    app.add_handler(CallbackQueryHandler(tratar_callbacks))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, buscar_texto))
+
+    async with app:
+        await app.initialize()
+        await app.start()
+
+        await app.bot.delete_webhook(drop_pending_updates=True)
+        await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
+        logging.info("--> [BOT MINIFLIX] Rodando com sucesso!")
+        
+        stop_event = asyncio.Event()
+        await stop_event.wait()
+
+
+if __name__ == "__main__":
+    if sys.platform.startswith("win"):
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logging.info("Bot finalizado.")
