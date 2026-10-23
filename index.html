@@ -811,6 +811,7 @@
       renderCatalogo();
     }
 
+    // --- CARROSSEL COM SELO DADOS DINÂMICOS NO HTML ---
     function renderAdicionadosRecentemente() {
       const sec = document.getElementById('recentesSection');
       const row = document.getElementById('recentesRow');
@@ -834,7 +835,13 @@
 
       sec.style.display = 'block';
       row.innerHTML = recentes.map(item => {
-        const badgeTexto = item.selo || 'NOVO';
+        let badgeTexto = item.selo || 'NOVO';
+        
+        // Se for série, anime ou cartoon, exibe "NOVA TEMPORADA" em azul
+        if (item.tipo !== 'filme' || badgeTexto === 'NOVA TEMP') {
+          badgeTexto = 'NOVA TEMPORADA';
+        }
+
         const badgeCor = badgeTexto === 'NOVO' ? 'var(--primary)' : '#2563eb';
 
         return `
