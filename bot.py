@@ -557,7 +557,7 @@ async def processar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE)
             else:
                 temp_label = formatar_numero(info['temporada'])
                 ep_label = formatar_numero(info['episodio'])
-                aviso = f"🔄 **Nova Atualização!**\n📺 *{info['nome']}* (S{temp_label}E{ep_label}) adicionado e movido ao topo dos Recentemente Adicionados."
+                aviso = f"🔥 **Nova Temporada Adicionada!**\n📺 *{info['nome']}* (S{temp_label}E{ep_label}) foi atualizado e movido ao topo dos Recentemente Adicionados."
             
         await context.bot.send_message(
             chat_id=msg.chat_id,
