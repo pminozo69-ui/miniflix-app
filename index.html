@@ -476,7 +476,7 @@
       justify-content: center;
       gap: 8px;
       cursor: pointer;
-      margin-bottom: 8px;
+      margin-top: 8px;
     }
 
     .btn-trailer {
@@ -520,7 +520,7 @@
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       gap: 8px;
-      margin-bottom: 12px;
+      margin-bottom: 8px;
     }
 
     .ep-btn {
@@ -655,7 +655,6 @@
 </head>
 <body>
 
-  <!-- HEADER -->
   <header>
     <div class="brand">
       <h1>🍿 Miniflix</h1>
@@ -679,18 +678,15 @@
 
   <div class="chips-container scrollbar-hide" id="genresChips"></div>
 
-  <!-- SEÇÃO: ADICIONADOS RECENTEMENTE -->
   <div id="recentesSection" style="display: none;">
     <div class="section-title">🔥 Adicionados Recentemente</div>
     <div class="recentes-row scrollbar-hide" id="recentesRow"></div>
   </div>
 
-  <!-- GRADE PRINCIPAL -->
   <div class="grid" id="catalogGrid">
     <div class="empty-state">Sincronizando catálogo...</div>
   </div>
 
-  <!-- MODAL DE DETALHES -->
   <div class="modal-overlay" id="modalOverlay" onclick="fecharModal(event)">
     <div class="modal-sheet" onclick="event.stopPropagation()">
       <div class="modal-close-bar"></div>
@@ -710,7 +706,6 @@
       </div>
 
       <div class="modal-actions">
-        <div id="modalRarMovieBox"></div>
         <div class="actions-row">
           <button class="btn-main" id="modalPlayBtn" onclick="executarPlayPrincipal()">
             ▶️ Assistir Agora
@@ -722,6 +717,8 @@
             🤍
           </button>
         </div>
+        <!-- BOTÃO RAR DO FILME (AGORA FICA ABAIXO DOS BOTÕES PRINCIPAIS) -->
+        <div id="modalRarMovieBox"></div>
       </div>
 
       <div class="modal-synopsis" id="modalSynopsis">
@@ -729,7 +726,7 @@
       </div>
 
       <div class="episodes-sec" id="modalEpisodesSec" style="display: none;">
-        <h3>📺 Selecione o Episódio ou Baixe a Temporada Completa:</h3>
+        <h3>📺 Selecione o Episódio:</h3>
         <div id="episodesContainer"></div>
       </div>
     </div>
@@ -962,7 +959,7 @@
 
       rarMovieBox.innerHTML = '';
 
-      const temRarFilme = (itemSelecionado.rar_packs || []).includes(0) || (itemSelecionado.rar_packs || []).includes(0.0);
+      const temRarFilme = (itemSelecionado.rar_packs || []).some(r => parseFloat(r) === 0);
 
       if (itemSelecionado.tipo === 'filme') {
         playBtn.style.display = 'flex';
@@ -978,34 +975,43 @@
 
         epContainer.innerHTML = '';
         const temps = itemSelecionado.temporadas || {};
-        const seasonKeys = Object.keys(temps).sort((a, b) => parseFloat(a) - parseFloat(b));
 
-        seasonKeys.forEach(tNum => {
-          const eps = (temps[tNum] || []).slice();
+        const setTodasSeasons = new Set([
+          ...Object.keys(temps).map(Number),
+          ...(itemSelecionado.rar_packs || []).map(Number)
+        ]);
+
+        const sortedSeasons = Array.from(setTodasSeasons).sort((a, b) => a - b);
+
+        sortedSeasons.forEach(valNum => {
+          const tNumStr = valNum.toString();
+          const eps = (temps[tNumStr] || []).slice();
           eps.sort((a, b) => parseFloat(a) - parseFloat(b));
 
-          const valNum = parseFloat(tNum);
-          const rotuloTemp = valNum === 0 ? '⭐ Especiais' : `Temporada ${tNum}`;
+          const rotuloTemp = valNum === 0 ? '⭐ Especiais' : `Temporada ${valNum}`;
           
           epContainer.innerHTML += `<div style="font-size: 13px; font-weight: 800; margin: 14px 0 6px; color: #fff;">${rotuloTemp}</div>`;
 
-          const temRarTemp = (itemSelecionado.rar_packs || []).includes(valNum);
+          // 1. PRIMEIRO RENDERIZA OS BOTÕES DOS EPISÓDIOS
+          if (eps.length > 0) {
+            let gridHtml = '<div class="ep-grid">';
+            eps.forEach(epNum => {
+              const epVal = parseFloat(epNum);
+              const epLabel = Number.isInteger(epVal) 
+                ? epVal.toString().padStart(2, '0') 
+                : epVal;
+
+              gridHtml += `<button class="ep-btn" onclick="solicitarMidia(${itemSelecionado.id}, ${valNum}, ${epNum})">EP ${epLabel}</button>`;
+            });
+            gridHtml += '</div>';
+            epContainer.innerHTML += gridHtml;
+          }
+
+          // 2. DEPOIS RENDERIZA O BOTÃO ROXO RAR ABAIXO DOS EPISÓDIOS
+          const temRarTemp = (itemSelecionado.rar_packs || []).some(r => parseFloat(r) === valNum);
           if (temRarTemp) {
             epContainer.innerHTML += `<button class="btn-rar-full" onclick="solicitarRar(${itemSelecionado.id}, ${valNum})">📦 Baixar ${rotuloTemp} Completa (.rar em partes)</button>`;
           }
-          
-          let gridHtml = '<div class="ep-grid">';
-          eps.forEach(epNum => {
-            const epVal = parseFloat(epNum);
-            const epLabel = Number.isInteger(epVal) 
-              ? epVal.toString().padStart(2, '0') 
-              : epVal;
-
-            gridHtml += `<button class="ep-btn" onclick="solicitarMidia(${itemSelecionado.id}, ${tNum}, ${epNum})">EP ${epLabel}</button>`;
-          });
-          gridHtml += '</div>';
-          
-          epContainer.innerHTML += gridHtml;
         });
       }
 
@@ -1086,7 +1092,6 @@
       const item = catalogoCompleto.find(i => i.id === id);
       if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 
-      const rotulo = temp === 0 ? "Filme em partes (.rar)" : `Temporada ${temp} Completa (.rar)`;
       mostrarLoading("📦 Enviando arquivos .RAR...", `Enviando todas as partes de "${item?.titulo}" para o chat...`);
 
       const userId = tg?.initDataUnsafe?.user?.id;
