@@ -132,21 +132,6 @@ def buscar_metadados_tmdb(nome_titulo: str, categoria: str):
                 trailer_key = v.get("key")
                 break
 
-        if not trailer_key and tmdb_id:
-            try:
-                resp_vid_en = requests.get(
-                    f"https://api.themoviedb.org/3/{tipo_busca}/{tmdb_id}/videos",
-                    params={"api_key": TMDB_API_KEY, "language": "en-US"},
-                    timeout=5
-                )
-                videos_en = resp_vid_en.json().get("results", [])
-                for v in videos_en:
-                    if v.get("site") == "YouTube" and v.get("type") in ["Trailer", "Teaser"]:
-                        trailer_key = v.get("key")
-                        break
-            except Exception:
-                pass
-
         return poster_url, sinopse, ano, nota, duracao, generos, trailer_key
 
     except Exception as e:
@@ -177,20 +162,6 @@ def init_db():
         );
     """)
     c.execute("""
-        ALTER TABLE titulos 
-        ADD COLUMN IF NOT EXISTS poster_url TEXT,
-        ADD COLUMN IF NOT EXISTS sinopse TEXT,
-        ADD COLUMN IF NOT EXISTS ano INTEGER,
-        ADD COLUMN IF NOT EXISTS nota NUMERIC(3,1),
-        ADD COLUMN IF NOT EXISTS duracao TEXT,
-        ADD COLUMN IF NOT EXISTS generos TEXT,
-        ADD COLUMN IF NOT EXISTS trailer_key TEXT,
-        ADD COLUMN IF NOT EXISTS audio TEXT,
-        ADD COLUMN IF NOT EXISTS selo TEXT DEFAULT 'NOVO',
-        ADD COLUMN IF NOT EXISTS criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
-    """)
-    c.execute("""
         CREATE TABLE IF NOT EXISTS arquivos (
             id SERIAL PRIMARY KEY,
             titulo_id INTEGER REFERENCES titulos(id) ON DELETE CASCADE,
@@ -201,16 +172,17 @@ def init_db():
             UNIQUE(chat_id, message_id)
         );
     """)
-    try:
-        c.execute("""
-            ALTER TABLE arquivos 
-            ALTER COLUMN temporada TYPE NUMERIC(4, 1),
-            ALTER COLUMN episodio TYPE NUMERIC(4, 1);
-        """)
-        conn.commit()
-    except Exception:
-        conn.rollback()
-
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS arquivos_rar (
+            id SERIAL PRIMARY KEY,
+            titulo_id INTEGER REFERENCES titulos(id) ON DELETE CASCADE,
+            temporada NUMERIC(4, 1) DEFAULT 0.0 NOT NULL,
+            chat_id BIGINT NOT NULL,
+            message_id BIGINT NOT NULL,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(chat_id, message_id)
+        );
+    """)
     c.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             user_id BIGINT PRIMARY KEY,
@@ -239,6 +211,7 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         
+        # 1. Rota de disparo de vídeo único
         if parsed.path == "/api/play":
             try:
                 params = parse_qs(parsed.query)
@@ -309,10 +282,52 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
             self._definir_headers_cors(200, "application/json; charset=utf-8", len(corpo))
             self.wfile.write(corpo)
 
+        # 2. Rota de disparo de PACOTE COMPACTADO (.RAR)
+        elif parsed.path == "/api/play_rar":
+            try:
+                params = parse_qs(parsed.query)
+                user_id = int(params.get("user_id", [0])[0])
+                titulo_id = int(params.get("titulo_id", [0])[0])
+                temp = float(params.get("temporada", [0.0])[0])
+
+                if user_id and titulo_id:
+                    conn = get_db_connection()
+                    c = conn.cursor()
+                    c.execute(
+                        "SELECT chat_id, message_id FROM arquivos_rar WHERE titulo_id = %s AND temporada = %s ORDER BY id ASC;",
+                        (titulo_id, temp)
+                    )
+                    partes = c.fetchall()
+                    c.close()
+                    conn.close()
+
+                    if partes:
+                        for chat_origem, msg_origem in partes:
+                            payload = {
+                                "chat_id": user_id,
+                                "from_chat_id": chat_origem,
+                                "message_id": msg_origem
+                            }
+                            requests.post(f"https://api.telegram.org/bot{TOKEN}/copyMessage", json=payload, timeout=5)
+
+                        corpo = json.dumps({"ok": True, "count": len(partes)}).encode("utf-8")
+                        self._definir_headers_cors(200, "application/json; charset=utf-8", len(corpo))
+                        self.wfile.write(corpo)
+                        return
+            except Exception as e:
+                logging.error(f"Erro na rota /api/play_rar: {e}")
+
+            corpo = json.dumps({"ok": False}).encode("utf-8")
+            self._definir_headers_cors(200, "application/json; charset=utf-8", len(corpo))
+            self.wfile.write(corpo)
+
+        # 3. Rota do Catálogo com Pacotes .RAR mapeados
         elif parsed.path == "/api/catalogo":
             try:
                 conn = get_db_connection()
                 c = conn.cursor()
+                
+                # Buscar Títulos e Episódios Normais
                 c.execute("""
                     SELECT t.id, t.categoria, t.nome, t.poster_url, t.sinopse, t.ano,
                            t.nota, t.duracao, t.generos, t.trailer_key, t.audio,
@@ -322,8 +337,18 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
                     ORDER BY COALESCE(t.atualizado_em, t.criado_em) DESC, a.temporada ASC, a.episodio ASC;
                 """)
                 linhas = c.fetchall()
+
+                # Buscar quais temporadas/filmes têm pacotes RAR
+                c.execute("SELECT titulo_id, temporada FROM arquivos_rar GROUP BY titulo_id, temporada;")
+                rars = c.fetchall()
                 c.close()
                 conn.close()
+
+                rar_map = {}
+                for t_id_rar, temp_rar in rars:
+                    if t_id_rar not in rar_map:
+                        rar_map[t_id_rar] = []
+                    rar_map[t_id_rar].append(formatar_valor_json(temp_rar))
 
                 titulos_map = {}
                 for r in linhas:
@@ -350,7 +375,8 @@ class ServidorWebHandler(BaseHTTPRequestHandler):
                             "sinopse": sinopse or "Sem sinopse cadastrada.",
                             "img": poster or "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=300",
                             "selo": selo_val,
-                            "temporadas": {}
+                            "temporadas": {},
+                            "rar_packs": rar_map.get(t_id, [])
                         }
                     
                     if cat != "filme" and temp is not None and ep is not None:
@@ -383,45 +409,42 @@ def iniciar_servidor_web():
     logging.info(f"--> [API + WEB] Servidor HTTP rodando na porta {porta}")
     httpd.serve_forever()
 
-# --- INGESTÃO AUTOMÁTICA ---
+# --- INGESTÃO AUTOMÁTICA DE VÍDEOS E PACOTES RAR ---
 def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int):
     if not texto_completo.startswith("#"):
         return False, False, {}
 
     texto_lower = texto_completo.lower()
-    
+    primeira_linha = texto_completo.split("\n")[0].strip()
+
     audio = "Dublado"
     if "#legendado" in texto_lower or "#leg" in texto_lower or "[leg]" in texto_lower:
         audio = "Legendado"
     elif "#dublado" in texto_lower or "#dub" in texto_lower or "[dub]" in texto_lower:
         audio = "Dublado"
-    elif "#dual" in texto_lower or "[dual]" in texto_lower:
-        audio = "Dublado / Legendado"
 
-    primeira_linha = texto_completo.split("\n")[0].strip()
-    
-    match_ep = re.match(
-        r"^#(serie|anime|cartoon)\s+(.+?)\s+[sS](\d+(?:\.\d+)?)[eE](\d+(?:\.\d+)?)",
-        primeira_linha,
-        re.IGNORECASE,
-    )
-    match_filme = re.match(r"^#filme\s+(.+)", primeira_linha, re.IGNORECASE)
+    # CHECAGEM 1: PACOTES RAR (#filme_rar OU #serie_rar / #anime_rar)
+    match_rar_serie = re.match(r"^#(serie|anime|cartoon)_rar\s+(.+?)\s+[sS](\d+(?:\.\d+)?)", primeira_linha, re.IGNORECASE)
+    match_rar_filme = re.match(r"^#filme_rar\s+(.+)", primeira_linha, re.IGNORECASE)
 
     conn = get_db_connection()
     c = conn.cursor()
 
-    if match_ep:
-        cat, nome_bruto = match_ep.group(1).lower(), match_ep.group(2).strip()
-        temp, ep = float(match_ep.group(3)), float(match_ep.group(4))
-        
+    if match_rar_serie or match_rar_filme:
+        if match_rar_serie:
+            cat, nome_bruto = match_rar_serie.group(1).lower(), match_rar_serie.group(2).strip()
+            temp = float(match_rar_serie.group(3))
+        else:
+            cat, nome_bruto = "filme", match_rar_filme.group(1).strip()
+            temp = 0.0
+
         nome = re.sub(r"#\w+", "", nome_bruto).strip().title()
         nome_busca = normalizar(nome)
 
         c.execute("SELECT id FROM titulos WHERE nome = %s;", (nome,))
         res_existente = c.fetchone()
         e_novo_titulo = res_existente is None
-
-        selo_valor = "NOVO" if e_novo_titulo else "NOVA TEMP"
+        selo_valor = "NOVO" if e_novo_titulo else ("ATUALIZADO" if cat == "filme" else "NOVA TEMP")
 
         poster_url, sinopse, ano, nota, duracao, generos, trailer_key = buscar_metadados_tmdb(nome, cat)
         generos_json = json.dumps(generos, ensure_ascii=False) if generos else "[]"
@@ -431,14 +454,6 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
             ON CONFLICT (nome) DO UPDATE SET 
                 categoria = EXCLUDED.categoria,
-                poster_url = COALESCE(EXCLUDED.poster_url, titulos.poster_url),
-                sinopse = COALESCE(EXCLUDED.sinopse, titulos.sinopse),
-                ano = COALESCE(EXCLUDED.ano, titulos.ano),
-                nota = COALESCE(EXCLUDED.nota, titulos.nota),
-                duracao = COALESCE(EXCLUDED.duracao, titulos.duracao),
-                generos = COALESCE(EXCLUDED.generos, titulos.generos),
-                trailer_key = COALESCE(EXCLUDED.trailer_key, titulos.trailer_key),
-                audio = EXCLUDED.audio,
                 selo = EXCLUDED.selo,
                 atualizado_em = CURRENT_TIMESTAMP;
         """, (cat, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos_json, trailer_key, audio, selo_valor))
@@ -447,45 +462,35 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
         titulo_id = c.fetchone()[0]
 
         c.execute(
-            "SELECT id FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s;",
-            (titulo_id, temp, ep)
+            "INSERT INTO arquivos_rar (titulo_id, temporada, chat_id, message_id) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING;",
+            (titulo_id, temp, chat_id, message_id)
         )
-        arq_existente = c.fetchone()
-        if arq_existente:
-            c.execute(
-                "UPDATE arquivos SET chat_id = %s, message_id = %s WHERE id = %s;",
-                (chat_id, message_id, arq_existente[0])
-            )
-        else:
-            c.execute(
-                "INSERT INTO arquivos (titulo_id, temporada, episodio, chat_id, message_id) VALUES (%s, %s, %s, %s, %s);",
-                (titulo_id, temp, ep, chat_id, message_id)
-            )
-        
+
         conn.commit()
         c.close()
         conn.close()
-        print(f"--> [TMDB + SUPABASE] {nome} (S{temp}E{ep}) [{audio}] salvo com selo '{selo_valor}'.")
-        
-        info = {
-            "nome": nome,
-            "categoria": cat,
-            "temporada": temp,
-            "episodio": ep
-        }
-        return True, e_novo_titulo, info
+        print(f"--> [RAR PACK] Salva parte RAR de {nome} (Temp {temp})")
+        return True, e_novo_titulo, {"nome": nome, "categoria": cat, "temporada": temp, "is_rar": True}
 
-    elif match_filme:
-        cat = "filme"
-        nome_bruto = match_filme.group(1).strip()
+    # CHECAGEM 2: VÍDEOS NORMAIS PARA STREAMING
+    match_ep = re.match(r"^#(serie|anime|cartoon)\s+(.+?)\s+[sS](\d+(?:\.\d+)?)[eE](\d+(?:\.\d+)?)", primeira_linha, re.IGNORECASE)
+    match_filme = re.match(r"^#filme\s+(.+)", primeira_linha, re.IGNORECASE)
+
+    if match_ep or match_filme:
+        if match_ep:
+            cat, nome_bruto = match_ep.group(1).lower(), match_ep.group(2).strip()
+            temp, ep = float(match_ep.group(3)), float(match_ep.group(4))
+        else:
+            cat, nome_bruto = "filme", match_filme.group(1).strip()
+            temp, ep = 0.0, 0.0
+
         nome = re.sub(r"#\w+", "", nome_bruto).strip().title()
         nome_busca = normalizar(nome)
 
         c.execute("SELECT id FROM titulos WHERE nome = %s;", (nome,))
         res_existente = c.fetchone()
         e_novo_titulo = res_existente is None
-
-        selo_valor = "NOVO" if e_novo_titulo else "ATUALIZADO"
+        selo_valor = "NOVO" if e_novo_titulo else ("ATUALIZADO" if cat == "filme" else "NOVA TEMP")
 
         poster_url, sinopse, ano, nota, duracao, generos, trailer_key = buscar_metadados_tmdb(nome, cat)
         generos_json = json.dumps(generos, ensure_ascii=False) if generos else "[]"
@@ -495,14 +500,6 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
             ON CONFLICT (nome) DO UPDATE SET 
                 categoria = EXCLUDED.categoria,
-                poster_url = COALESCE(EXCLUDED.poster_url, titulos.poster_url),
-                sinopse = COALESCE(EXCLUDED.sinopse, titulos.sinopse),
-                ano = COALESCE(EXCLUDED.ano, titulos.ano),
-                nota = COALESCE(EXCLUDED.nota, titulos.nota),
-                duracao = COALESCE(EXCLUDED.duracao, titulos.duracao),
-                generos = COALESCE(EXCLUDED.generos, titulos.generos),
-                trailer_key = COALESCE(EXCLUDED.trailer_key, titulos.trailer_key),
-                audio = EXCLUDED.audio,
                 selo = EXCLUDED.selo,
                 atualizado_em = CURRENT_TIMESTAMP;
         """, (cat, nome, nome_busca, poster_url, sinopse, ano, nota, duracao, generos_json, trailer_key, audio, selo_valor))
@@ -510,31 +507,16 @@ def salvar_ou_atualizar_midia(texto_completo: str, chat_id: int, message_id: int
         c.execute("SELECT id FROM titulos WHERE nome = %s;", (nome,))
         titulo_id = c.fetchone()[0]
 
-        c.execute("SELECT id FROM arquivos WHERE titulo_id = %s;", (titulo_id,))
-        arq_existente = c.fetchone()
-        if arq_existente:
-            c.execute(
-                "UPDATE arquivos SET chat_id = %s, message_id = %s WHERE id = %s;",
-                (chat_id, message_id, arq_existente[0])
-            )
-        else:
-            c.execute(
-                "INSERT INTO arquivos (titulo_id, temporada, episodio, chat_id, message_id) VALUES (%s, 0.0, 0.0, %s, %s);",
-                (titulo_id, chat_id, message_id)
-            )
-        
+        c.execute(
+            "INSERT INTO arquivos (titulo_id, temporada, episodio, chat_id, message_id) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (chat_id, message_id) DO UPDATE SET chat_id = EXCLUDED.chat_id;",
+            (titulo_id, temp, ep, chat_id, message_id)
+        )
+
         conn.commit()
         c.close()
         conn.close()
-        print(f"--> [TMDB + SUPABASE] Filme {nome} ({ano}) [{audio}] salvo com selo '{selo_valor}'.")
-        
-        info = {
-            "nome": nome,
-            "categoria": cat,
-            "temporada": 0.0,
-            "episodio": 0.0
-        }
-        return True, e_novo_titulo, info
+        print(f"--> [MIDIA] {nome} S{temp}E{ep} salvo com sucesso.")
+        return True, e_novo_titulo, {"nome": nome, "categoria": cat, "temporada": temp, "episodio": ep, "is_rar": False}
 
     c.close()
     conn.close()
@@ -552,15 +534,17 @@ async def processar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE)
     sucesso, e_novo_titulo, info = salvar_ou_atualizar_midia(texto, msg.chat_id, msg.message_id)
     
     if sucesso:
-        if e_novo_titulo:
+        if info.get("is_rar"):
+            aviso = f"📦 **Parte do arquivo .RAR recebida!**\n🎬 *{info['nome']}* teve partes compactadas adicionadas ao catálogo."
+        elif e_novo_titulo:
             aviso = f"✨ **Novo Título Adicionado!**\n🎬 *{info['nome']}* já está disponível no catálogo."
         else:
             if info['categoria'] == 'filme':
-                aviso = f"🔄 **Filme Atualizado!**\n🎬 *{info['nome']}* teve seus arquivos atualizados no Miniflix."
+                aviso = f"🔄 **Filme Atualizado!**\n🎬 *{info['nome']}* teve seus arquivos atualizados."
             else:
                 temp_label = formatar_numero(info['temporada'])
                 ep_label = formatar_numero(info['episodio'])
-                aviso = f"🔥 **Nova Temporada Adicionada!**\n📺 *{info['nome']}* (S{temp_label}E{ep_label}) foi atualizado e movido ao topo dos Recentemente Adicionados."
+                aviso = f"🔥 **Nova Temporada Adicionada!**\n📺 *{info['nome']}* (S{temp_label}E{ep_label}) atualizado no catálogo."
             
         await context.bot.send_message(
             chat_id=msg.chat_id,
@@ -569,75 +553,12 @@ async def processar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE)
             parse_mode="Markdown"
         )
 
-async def processar_edicao(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.edited_channel_post or update.edited_message
-    if msg:
-        salvar_ou_atualizar_midia((msg.caption or msg.text or "").strip(), msg.chat_id, msg.message_id)
-
-# --- MENUS E COMANDOS NATIVOS ---
-def menu_principal():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎬 Filmes", callback_data="cat:filme:0"),
-         InlineKeyboardButton("📺 Séries", callback_data="cat:serie:0")],
-        [InlineKeyboardButton("⛩️ Animes", callback_data="cat:anime:0"),
-         InlineKeyboardButton("🎨 Cartoons", callback_data="cat:cartoon:0")],
-        [InlineKeyboardButton("🚀 Abrir Catálogo Visual", web_app=WebAppInfo(url=WEBAPP_URL))]
-    ])
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("INSERT INTO usuarios (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING;", (user_id,))
     conn.commit()
-
-    if context.args and context.args[0].startswith("play_"):
-        partes = context.args[0].split("_")
-        titulo_id = int(partes[1])
-        
-        if len(partes) >= 4:
-            temp = float(partes[2])
-            ep = float(partes[3])
-            c.execute(
-                "SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s AND temporada = %s AND episodio = %s ORDER BY id DESC LIMIT 1;",
-                (titulo_id, temp, ep)
-            )
-        else:
-            c.execute("SELECT id, chat_id, message_id FROM arquivos WHERE titulo_id = %s ORDER BY id DESC LIMIT 1;", (titulo_id,))
-            temp, ep = 0.0, 0.0
-            
-        arq = c.fetchone()
-        if arq:
-            arq_id, chat_origem, msg_origem = arq
-            
-            btn_prox = None
-            if len(partes) >= 4:
-                c.execute(
-                    """SELECT id, episodio FROM arquivos 
-                       WHERE titulo_id = %s AND temporada = %s AND episodio > %s 
-                       ORDER BY episodio ASC LIMIT 1;""",
-                    (titulo_id, temp, ep)
-                )
-                prox = c.fetchone()
-                if prox:
-                    label_prox = formatar_numero(prox[1])
-                    btn_prox = InlineKeyboardMarkup([[InlineKeyboardButton(f"▶️ Próximo (Ep {label_prox})", callback_data=f"play:{prox[0]}")]])
-
-            await context.bot.copy_message(
-                chat_id=update.effective_chat.id,
-                from_chat_id=chat_origem,
-                message_id=msg_origem,
-                reply_markup=btn_prox
-            )
-            c.close()
-            conn.close()
-            return
-        else:
-            await update.message.reply_text("❌ Arquivo correspondente não foi encontrado no catálogo.")
-            c.close()
-            conn.close()
-            return
-
     c.close()
     conn.close()
 
@@ -648,183 +569,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     msg_boas_vindas = (
         "🍿 **Bem-vindo ao Miniflix!**\n\n"
-        "Assista a filmes, séries, animes e desenhos com reprodução instantânea.\n\n"
-        "• 🚀 **Toque em '🍿 Abrir Miniflix'** abaixo para navegar pelo catálogo com capas em HD, trailers e gêneros.\n"
-        "• 🔍 Ou **digite o nome** de qualquer título aqui no chat para buscar."
+        "Assista a filmes e séries ou baixe temporadas completas compactadas (.rar).\n\n"
+        "• 🚀 **Toque em '🍿 Abrir Miniflix'** abaixo para acessar a plataforma."
     )
 
     await update.message.reply_markdown(msg_boas_vindas, reply_markup=teclado_app)
-    await update.message.reply_markdown("Categorias disponíveis:", reply_markup=menu_principal())
 
-async def tratar_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    dados = query.data.split(":")
-    acao = dados[0]
-
-    conn = get_db_connection()
-    c = conn.cursor()
-
-    if acao == "menu":
-        await query.edit_message_text("🍿 **Miniflix Bot**\nEscolha uma categoria:", reply_markup=menu_principal(), parse_mode="Markdown")
-
-    elif acao == "cat":
-        cat = dados[1]
-        pagina = int(dados[2]) if len(dados) > 2 else 0
-
-        c.execute("SELECT id, nome FROM titulos WHERE categoria = %s ORDER BY nome ASC;", (cat,))
-        titulos = c.fetchall()
-
-        if not titulos:
-            teclado = [[InlineKeyboardButton("↩ Voltar ao Menu", callback_data="menu:root")]]
-            await query.edit_message_text(f"Nenhum título em **{cat.capitalize()}s** ainda.", reply_markup=InlineKeyboardMarkup(teclado), parse_mode="Markdown")
-            c.close()
-            conn.close()
-            return
-
-        total_itens = len(titulos)
-        total_paginas = (total_itens + ITENS_POR_PAGINA - 1) // ITENS_POR_PAGINA
-        pagina = max(0, min(pagina, total_paginas - 1))
-        titulos_pagina = titulos[pagina * ITENS_POR_PAGINA : (pagina + 1) * ITENS_POR_PAGINA]
-
-        botoes = [[InlineKeyboardButton(t[1], callback_data=f"tit:{t[0]}")] for t in titulos_pagina]
-        linha_nav = []
-        if pagina > 0:
-            linha_nav.append(InlineKeyboardButton("« Anterior", callback_data=f"cat:{cat}:{pagina - 1}"))
-        if total_paginas > 1:
-            linha_nav.append(InlineKeyboardButton(f"{pagina + 1}/{total_paginas}", callback_data="noop"))
-        if pagina < total_paginas - 1:
-            linha_nav.append(InlineKeyboardButton("Próximo »", callback_data=f"cat:{cat}:{pagina + 1}"))
-
-        if linha_nav:
-            botoes.append(linha_nav)
-
-        botoes.append([InlineKeyboardButton("↩ Voltar ao Menu", callback_data="menu:root")])
-        await query.edit_message_text(f"📁 **{cat.capitalize()}s** (Pág. {pagina + 1}/{total_paginas}):", reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
-
-    elif acao == "tit":
-        titulo_id = int(dados[1])
-        c.execute("SELECT nome, categoria FROM titulos WHERE id = %s;", (titulo_id,))
-        res = c.fetchone()
-        if not res:
-            c.close()
-            conn.close()
-            return
-        titulo, cat = res
-
-        if cat == "filme":
-            c.execute("SELECT chat_id, message_id FROM arquivos WHERE titulo_id = %s ORDER BY id DESC LIMIT 1;", (titulo_id,))
-            arq = c.fetchone()
-            if arq:
-                await context.bot.copy_message(chat_id=query.message.chat_id, from_chat_id=arq[0], message_id=arq[1])
-            c.close()
-            conn.close()
-            return
-
-        c.execute("SELECT DISTINCT temporada FROM arquivos WHERE titulo_id = %s ORDER BY temporada ASC;", (titulo_id,))
-        temporadas = c.fetchall()
-        botoes = [[InlineKeyboardButton(formatar_temporada(t[0]), callback_data=f"temp:{titulo_id}:{t[0]}")] for t in temporadas]
-        botoes.append([InlineKeyboardButton("↩ Voltar", callback_data=f"cat:{cat}:0")])
-        await query.edit_message_text(f"📺 **{titulo}**\nSelecione a temporada:", reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
-
-    elif acao == "temp":
-        titulo_id = int(dados[1])
-        temp = float(dados[2])
-        c.execute("SELECT nome, categoria FROM titulos WHERE id = %s;", (titulo_id,))
-        titulo, cat = c.fetchone()
-
-        c.execute("SELECT id, episodio FROM arquivos WHERE titulo_id = %s AND temporada = %s ORDER BY episodio ASC;", (titulo_id, temp))
-        episodios = c.fetchall()
-
-        botoes, linha = [], []
-        for ep_id, ep_num in episodios:
-            label = formatar_numero(ep_num)
-            linha.append(InlineKeyboardButton(label, callback_data=f"play:{ep_id}"))
-            if len(linha) == 5:
-                botoes.append(linha)
-                linha = []
-        if linha:
-            botoes.append(linha)
-
-        botoes.append([InlineKeyboardButton("↩ Voltar às Temporadas", callback_data=f"tit:{titulo_id}")])
-        rotulo_temp = formatar_temporada(temp)
-        await query.edit_message_text(f"🎬 **{titulo}** — *{rotulo_temp}*\nEscolha o episódio:", reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
-
-    elif acao == "play":
-        arq_id = int(dados[1])
-        c.execute("SELECT titulo_id, temporada, episodio, chat_id, message_id FROM arquivos WHERE id = %s;", (arq_id,))
-        arq = c.fetchone()
-        if arq:
-            titulo_id, temp_atual, ep_atual, chat_origem, msg_origem = arq
-            
-            c.execute(
-                """SELECT id, episodio FROM arquivos 
-                   WHERE titulo_id = %s AND temporada = %s AND episodio > %s 
-                   ORDER BY episodio ASC LIMIT 1;""",
-                (titulo_id, temp_atual, ep_atual)
-            )
-            prox = c.fetchone()
-            
-            btn_prox = None
-            if prox:
-                label_prox = formatar_numero(prox[1])
-                btn_prox = InlineKeyboardMarkup([[InlineKeyboardButton(f"▶️ Próximo (Ep {label_prox})", callback_data=f"play:{prox[0]}")]])
-
-            await context.bot.copy_message(
-                chat_id=query.message.chat_id,
-                from_chat_id=chat_origem,
-                message_id=msg_origem,
-                reply_markup=btn_prox,
-            )
-
-    c.close()
-    conn.close()
-
-async def buscar_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    termo = normalizar(update.message.text)
-    if len(termo) < 2:
-        return
-
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("SELECT id, nome, categoria FROM titulos WHERE nome_busca LIKE %s LIMIT 10;", (f"%{termo}%",))
-    resultados = c.fetchall()
-    c.close()
-    conn.close()
-
-    if not resultados:
-        await update.message.reply_text("Nenhum título encontrado com esse nome.")
-        return
-
-    botoes = [[InlineKeyboardButton(f"[{r[2].upper()}] {r[1]}", callback_data=f"tit:{r[0]}")] for r in resultados]
-    await update.message.reply_markdown("🔍 **Resultados encontrados:**", reply_markup=InlineKeyboardMarkup(botoes))
-
-async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM usuarios;")
-    total_users = c.fetchone()[0]
-
-    c.execute("SELECT categoria, COUNT(*) FROM titulos GROUP BY categoria;")
-    por_cat = dict(c.fetchall())
-
-    c.execute("SELECT COUNT(*) FROM arquivos;")
-    total_arquivos = c.fetchone()[0]
-    c.close()
-    conn.close()
-
-    texto = (
-        "📊 **Estatísticas do Miniflix**\n\n"
-        f"👥 **Usuários:** `{total_users}`\n"
-        f"📦 **Arquivos:** `{total_arquivos}`\n\n"
-        f"• 🎬 Filmes: `{por_cat.get('filme', 0)}`\n"
-        f"• 📺 Séries: `{por_cat.get('serie', 0)}`\n"
-        f"• ⛩️ Animes: `{por_cat.get('anime', 0)}`\n"
-        f"• 🎨 Cartoons: `{por_cat.get('cartoon', 0)}`"
-    )
-    await update.message.reply_markdown(texto)
-
-# --- INICIALIZAÇÃO ---
 async def main():
     init_db()
     threading.Thread(target=iniciar_servidor_web, daemon=True).start()
@@ -844,27 +594,16 @@ async def main():
         processar_postagem
     ))
     
-    app.add_handler(MessageHandler(
-        filters.UpdateType.EDITED_CHANNEL_POST | filters.UpdateType.EDITED_MESSAGE, 
-        processar_postagem
-    ))
-
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("stats", cmd_stats))
-    app.add_handler(CallbackQueryHandler(tratar_callbacks))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, buscar_texto))
 
     async with app:
         await app.initialize()
         await app.start()
-
         await app.bot.delete_webhook(drop_pending_updates=True)
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-        logging.info("--> [BOT MINIFLIX] Rodando com sucesso!")
-        
+        logging.info("--> [BOT MINIFLIX] Rodando com suporte a arquivos .RAR!")
         stop_event = asyncio.Event()
         await stop_event.wait()
-
 
 if __name__ == "__main__":
     if sys.platform.startswith("win"):
