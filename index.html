@@ -18,6 +18,7 @@
       --badge-dub: #2563eb;
       --badge-leg: #059669;
       --border: rgba(255, 255, 255, 0.08);
+      --rar-color: #7c3aed;
     }
 
     * {
@@ -435,8 +436,14 @@
 
     .modal-actions {
       display: flex;
+      flex-direction: column;
       gap: 8px;
       margin-bottom: 16px;
+    }
+
+    .actions-row {
+      display: flex;
+      gap: 8px;
     }
 
     .btn-main {
@@ -453,6 +460,23 @@
       justify-content: center;
       gap: 8px;
       cursor: pointer;
+    }
+
+    .btn-rar-full {
+      width: 100%;
+      background: linear-gradient(135deg, #6d28d9, #4c1d95);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      padding: 12px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      cursor: pointer;
+      margin-bottom: 8px;
     }
 
     .btn-trailer {
@@ -686,15 +710,18 @@
       </div>
 
       <div class="modal-actions">
-        <button class="btn-main" id="modalPlayBtn" onclick="executarPlayPrincipal()">
-          ▶️ Assistir Agora
-        </button>
-        <button class="btn-trailer" id="modalTrailerBtn" onclick="abrirTrailer()">
-          🎬 Trailer
-        </button>
-        <button class="btn-fav" id="modalFavBtn" onclick="toggleFavoritoModal()">
-          🤍
-        </button>
+        <div id="modalRarMovieBox"></div>
+        <div class="actions-row">
+          <button class="btn-main" id="modalPlayBtn" onclick="executarPlayPrincipal()">
+            ▶️ Assistir Agora
+          </button>
+          <button class="btn-trailer" id="modalTrailerBtn" onclick="abrirTrailer()">
+            🎬 Trailer
+          </button>
+          <button class="btn-fav" id="modalFavBtn" onclick="toggleFavoritoModal()">
+            🤍
+          </button>
+        </div>
       </div>
 
       <div class="modal-synopsis" id="modalSynopsis">
@@ -702,7 +729,7 @@
       </div>
 
       <div class="episodes-sec" id="modalEpisodesSec" style="display: none;">
-        <h3>📺 Selecione o Episódio:</h3>
+        <h3>📺 Selecione o Episódio ou Baixe a Temporada Completa:</h3>
         <div id="episodesContainer"></div>
       </div>
     </div>
@@ -719,7 +746,7 @@
     <div class="loader-box">
       <div class="loader-spinner"></div>
       <div class="loading-title" id="loadingTitle">Preparando mídia...</div>
-      <div class="loading-sub" id="loadingSub">Enviando o vídeo diretamente para o seu chat no Telegram...</div>
+      <div class="loading-sub" id="loadingSub">Enviando os arquivos diretamente para o seu chat no Telegram...</div>
       <div class="loading-badge" id="loadingBadge">⚡ Miniflix Instant Play</div>
     </div>
   </div>
@@ -811,7 +838,6 @@
       renderCatalogo();
     }
 
-    // --- CARROSSEL COM SELO DADOS DINÂMICOS NO HTML ---
     function renderAdicionadosRecentemente() {
       const sec = document.getElementById('recentesSection');
       const row = document.getElementById('recentesRow');
@@ -836,12 +862,9 @@
       sec.style.display = 'block';
       row.innerHTML = recentes.map(item => {
         let badgeTexto = item.selo || 'NOVO';
-        
-        // Se for série, anime ou cartoon, exibe "NOVA TEMPORADA" em azul
         if (item.tipo !== 'filme' || badgeTexto === 'NOVA TEMP') {
           badgeTexto = 'NOVA TEMPORADA';
         }
-
         const badgeCor = badgeTexto === 'NOVO' ? 'var(--primary)' : '#2563eb';
 
         return `
@@ -933,20 +956,28 @@
       atualizarBotaoFavModal(favs.includes(itemSelecionado.id));
 
       const playBtn = document.getElementById('modalPlayBtn');
+      const rarMovieBox = document.getElementById('modalRarMovieBox');
       const epSec = document.getElementById('modalEpisodesSec');
       const epContainer = document.getElementById('episodesContainer');
+
+      rarMovieBox.innerHTML = '';
+
+      const temRarFilme = (itemSelecionado.rar_packs || []).includes(0) || (itemSelecionado.rar_packs || []).includes(0.0);
 
       if (itemSelecionado.tipo === 'filme') {
         playBtn.style.display = 'flex';
         playBtn.innerText = '▶️ Assistir Filme';
         epSec.style.display = 'none';
+
+        if (temRarFilme) {
+          rarMovieBox.innerHTML = `<button class="btn-rar-full" onclick="solicitarRar(${itemSelecionado.id}, 0)">📦 Baixar Filme Completo em Partes (.rar)</button>`;
+        }
       } else {
         playBtn.style.display = 'none';
         epSec.style.display = 'block';
 
         epContainer.innerHTML = '';
         const temps = itemSelecionado.temporadas || {};
-
         const seasonKeys = Object.keys(temps).sort((a, b) => parseFloat(a) - parseFloat(b));
 
         seasonKeys.forEach(tNum => {
@@ -956,7 +987,12 @@
           const valNum = parseFloat(tNum);
           const rotuloTemp = valNum === 0 ? '⭐ Especiais' : `Temporada ${tNum}`;
           
-          epContainer.innerHTML += `<div style="font-size: 12px; font-weight: 700; margin: 12px 0 6px; color: #8e95a5;">${rotuloTemp}</div>`;
+          epContainer.innerHTML += `<div style="font-size: 13px; font-weight: 800; margin: 14px 0 6px; color: #fff;">${rotuloTemp}</div>`;
+
+          const temRarTemp = (itemSelecionado.rar_packs || []).includes(valNum);
+          if (temRarTemp) {
+            epContainer.innerHTML += `<button class="btn-rar-full" onclick="solicitarRar(${itemSelecionado.id}, ${valNum})">📦 Baixar ${rotuloTemp} Completa (.rar em partes)</button>`;
+          }
           
           let gridHtml = '<div class="ep-grid">';
           eps.forEach(epNum => {
@@ -1017,16 +1053,14 @@
 
     async function solicitarMidia(id, temp, ep) {
       const item = catalogoCompleto.find(i => i.id === id);
-
       if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 
       const epDisplay = Number.isInteger(parseFloat(ep)) ? ep.toString().padStart(2, '0') : ep;
-
       const subTexto = (item?.tipo === 'filme' || (temp === 0 && ep === 0))
         ? `Enviando "${item?.titulo || 'o filme'}" para o seu chat...`
         : `Enviando Temp ${temp} • Ep ${epDisplay} para o seu chat...`;
 
-      mostrarLoading("🍿 Carregando...", subTexto);
+      mostrarLoading("🍿 Carregando vídeo...", subTexto);
 
       const userId = tg?.initDataUnsafe?.user?.id;
       if (userId) {
@@ -1035,29 +1069,44 @@
           const dados = await resp.json();
 
           if (dados.ok) {
-            document.getElementById('loadingTitle').innerText = "✅ Pronto!";
-            document.getElementById('loadingSub').innerText = "Vídeo enviado! Abrindo a conversa...";
-            
-            setTimeout(() => {
-              if (tg?.close) tg.close();
-            }, 400);
-            return;
-          } else {
-            esconderLoading();
-            alert("❌ Erro ao buscar o arquivo. Tente novamente.");
+            document.getElementById('loadingTitle').innerText = "✅ Vídeo Enviado!";
+            document.getElementById('loadingSub').innerText = "Abra a conversa com o bot para assistir.";
+            setTimeout(() => { if (tg?.close) tg.close(); }, 500);
             return;
           }
         } catch (err) {
           console.error("Erro no play:", err);
-          esconderLoading();
-          alert("⚠ Erro de conexão com o servidor.");
-          return;
         }
       }
-
       esconderLoading();
-      const query = temp === 0 && ep === 0 ? `play_${id}` : `play_${id}_${temp}_${ep}`;
-      window.open(`https://t.me/${BOT_USERNAME}?start=${query}`, '_blank');
+      window.open(`https://t.me/${BOT_USERNAME}?start=play_${id}`, '_blank');
+    }
+
+    async function solicitarRar(id, temp) {
+      const item = catalogoCompleto.find(i => i.id === id);
+      if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+
+      const rotulo = temp === 0 ? "Filme em partes (.rar)" : `Temporada ${temp} Completa (.rar)`;
+      mostrarLoading("📦 Enviando arquivos .RAR...", `Enviando todas as partes de "${item?.titulo}" para o chat...`);
+
+      const userId = tg?.initDataUnsafe?.user?.id;
+      if (userId) {
+        try {
+          const resp = await fetch(`${API_BASE_URL}/play_rar?user_id=${userId}&titulo_id=${id}&temporada=${temp}`);
+          const dados = await resp.json();
+
+          if (dados.ok) {
+            document.getElementById('loadingTitle').innerText = `✅ ${dados.count} Parte(s) Enviada(s)!`;
+            document.getElementById('loadingSub').innerText = "Todas as partes foram enviadas para o seu chat no Telegram.";
+            setTimeout(() => { if (tg?.close) tg.close(); }, 800);
+            return;
+          }
+        } catch (err) {
+          console.error("Erro no play_rar:", err);
+        }
+      }
+      esconderLoading();
+      alert("❌ Não foi possível carregar os arquivos .RAR automaticamente.");
     }
 
     carregarCatalogo();
